@@ -74,14 +74,8 @@ end
 Heuristic(dists::OrderedDict) = Heuristic(map(rand, dists.vals)...)
 SimHeuristic(dists::OrderedDict) = SimHeuristic(Heuristic(dists), Heuristic(dists), rand(dists["λ"]))
 
-function print_h(io::IO, h::Heuristic)
-    # println("reduce_funs: ", h.cell_reduce, ", ", h.s_reduce)
-    @printf(io, "Heuristic: funs(%s, %s) vars(β_r=%.2f, α_r=%.2f, β_c=%.2f, α_c=%.2f)", h.cell_reduce, h.s_reduce, h.β_r, h.α_r, h.β_c, h.α_c)
-    # println("β_r=", round(h.β_r,3), " α_r=", h.α_r, " β_c=", h.β_c, " α_c=", h.α_c)
-end
 Base.show(io::IO, h::Heuristic) = @printf(io, "Heuristic: funs(%s, %s) vars(β_r=%.2f, α_r=%.2f, β_c=%.2f, α_c=%.2f)", h.cell_reduce, h.s_reduce, h.β_r, h.α_r, h.β_c, h.α_c)
-Base.show(io::IO, s::SimHeuristic) = begin println("Opp_h: ",s.opp_h); println("Self_h: ",s.self_h); println("λ: ", s.λ) end
-first_el = (x, y) -> x
+Base.show(io::IO, s::SimHeuristic) = println("Opp_h: ",s.opp_h); println("Self_h: ",s.self_h); println("λ: ", s.λ)
 
 h_dists = OrderedDict(
 "β_r" => Distributions.Uniform(0,4),
@@ -89,7 +83,7 @@ h_dists = OrderedDict(
 "β_c" => Distributions.Uniform(0,4),
 "α_c" => Distributions.Uniform(0,4),
 "λ" => Distributions.Uniform(0,4),
-"cell_reduce" => [Base.:+, Base.:*, first_el],
+"cell_reduce" => [Base.:+, Base.:*, first],
 "s_reduce" => [sum, maximum, minimum]
 )
 
@@ -189,7 +183,6 @@ function opt_s!(s::SimHeuristic, opp_h::Heuristic, games; max_time=10.0)
         setfield!(name[1], name[2], param)
     end
 end
-
 
 function find_best_heuristic(h_dists, opp_h, games)
     h_list = []
