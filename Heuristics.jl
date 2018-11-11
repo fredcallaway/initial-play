@@ -103,7 +103,7 @@ end
 function decide(h::Heuristic, game::Game)
     v = relative_values(h, game)
     v = softmax(h.λ*v)
-    choice = sample(length(v), Weights(v))
+    choice = sample(1:length(v), Weights(v))
 end
 
 function decide(s::SimHeuristic, game::Game)
