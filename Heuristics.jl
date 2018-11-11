@@ -1,7 +1,7 @@
 import Distributions: MvNormal
 import Distributions
 import StatsFuns: softmax
-import StatsBase: sample, WeightVec
+import StatsBase: sample, Weights
 import Base
 import DataStructures: OrderedDict
 using BlackBoxOptim
@@ -109,7 +109,7 @@ end
 function decide(h::Heuristic, game::Game)
     v = relative_values(h, game)
     v = softmax(h.λ*v)
-    choice = argmax(v)
+    choice = sample(length(v), Weights(v))
 end
 
 function decide(s::SimHeuristic, game::Game)
@@ -125,13 +125,13 @@ end
 
 ### Generating games and calcuating fitness
 level_0 = Heuristic(0,0,0,0,0, (+), sum)
-level_1 = Heuristic(1,1,0,0,0, (+), sum)
+level_1 = Heuristic(1,1,0,0,1.5, (+), sum)
 level_2 = SimHeuristic(level_1, level_1, 4.)
-maximin = Heuristic(1,1,0,0,0, (+), minimum)
-sum_prod = Heuristic(1,1,1,1,0, (*), sum)
-max_prod = Heuristic(1,1,1,1,0, (*), maximum)
-max_sum = Heuristic(1,1,1,1,0, (+), maximum)
-sum_sum = Heuristic(1,1,1,1,0, (+), sum)
+maximin = Heuristic(1,1,0,0,4, (+), minimum)
+sum_prod = Heuristic(1,1,1,1,4, (*), sum)
+max_prod = Heuristic(1,1,1,1,4, (*), maximum)
+max_sum = Heuristic(1,1,1,1,4, (+), maximum)
+sum_sum = Heuristic(1,1,1,1,4, (+), sum)
 
 
 function payoff(h, opp_h, games)
@@ -215,8 +215,8 @@ function find_best_heuristic(h_dists, opp_h, games)
         println("post-fitnes: ", new_fitness, " for ", s)
         append!(h_list, [(s, new_fitness)])
     end
-    sort!(s_list, rev=true, by= x -> x[2])
-    return(s_list)
+    sort!(h_list, rev=true, by= x -> x[2])
+    return(h_list)
 end
 
 
