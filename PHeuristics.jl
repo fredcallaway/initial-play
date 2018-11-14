@@ -133,12 +133,19 @@ end
 
 
 
-function payoff(h, opp_h, games)
+function payoff(h, opp_h::Union{Heuristic, Vector{Vector{Float64}}}, games)
     payoff = 0
-    for g in games
-        decision = decide(h, g)
-        opp_decision = decide(opp_h, transpose(g))
-        payoff += g.row[decision, opp_decision]
+    if isa(opp_h, Heuristic)
+        for g in games
+            decision = decide(h, g)
+            opp_decision = decide(opp_h, transpose(g))
+            payoff += g.row[decision, opp_decision]
+        end
+    else
+        for i in 1:length(games)
+            decision = decide(h, games[i])
+            payoff += opp_h[i][decision]
+        end
     end
     return payoff
 end
@@ -146,25 +153,19 @@ end
 
 opp_cols_played = (opp_h, games) -> [g.row[:,decide(opp_h, transpose(g))] for g in games]
 
-function fitness_from_col_play(h, games, opp_plays)
-    payoff = 0
-    for i in 1:length(games)
-        decision = decide(h, games[i])
-        payoff += opp_plays[i][decision]
+function opt_h!(h::Heuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}, games, h_dists; max_time=20.0, method=:de_rand_1_bin, trace=:silent)
+    if isa(opp_h, Heuristic)
+        opp_plays = opp_cols_played(opp_h, games)
+    else
+        opp_plays = opp_h
     end
-    return payoff
-end
-
-
-function opt_h!(h::Heuristic, opp_h::Heuristic, games, h_dists; max_time=20.0, method=:de_rand_1_bin, trace=:silent)
-    opp_plays = opp_cols_played(opp_h, games)
     param_names = [:α, :γ, :λ]
     init_params = [h.α, h.γ, h.λ]
     function opt_fun(params)
         for (name, param) in zip(param_names, params)
             setfield!(h, name, param)
         end
-        return -fitness_from_col_play(h, games, opp_plays)
+        return -payoff(h, opp_plays, games)
     end
     res = bboptimize(opt_fun; SearchRange = [(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], MaxTime=max_time, Method=method, TraceMode = trace, TraceInterval =4.0)
     for (name, param) in zip(param_names, best_candidate(res))
@@ -172,8 +173,12 @@ function opt_h!(h::Heuristic, opp_h::Heuristic, games, h_dists; max_time=20.0, m
     end
 end
 
-function opt_s!(s::SimHeuristic, opp_h::Heuristic, games, h_dists; max_time=20.0, method=method)
-    opp_plays = opp_cols_played(opp_h, games)
+function opt_s!(s::SimHeuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}, games, h_dists; max_time=20.0, method=method)
+    if isa(opp_h, Heuristic)
+        opp_plays = opp_cols_played(opp_h, games)
+    else
+        opp_plays = opp_h
+    end
     n_h_params = length(fieldnames(Heuristic))
     param_names = repeat([:α, :γ, :λ], outer=[s.level])
     h = s.h_list[1]
@@ -185,7 +190,7 @@ function opt_s!(s::SimHeuristic, opp_h::Heuristic, games, h_dists; max_time=20.0
                 setfield!(s.h_list[i], param_names[j], params[param_idx])
             end
         end
-        return -fitness_from_col_play(s, games, opp_plays)
+        return -payoff(s, opp_plays, games)
     end
     res = bboptimize(opt_fun; SearchRange = repeat([(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], outer=[s.level]), MaxTime=max_time,  Method=method, TraceMode = :silent, TraceInterval =4.0)
     res_params = best_candidate(res)
@@ -196,148 +201,3 @@ function opt_s!(s::SimHeuristic, opp_h::Heuristic, games, h_dists; max_time=20.0
         end
     end
 end
-
-h = Heuristic(0, 0, 0.0)
-g = Game(3, 0.)
-g.row[1,2] = 100
-g
-relative_values(h, g)
-
-s = SimHeuristic(h_dists, 2)
-s3 = SimHeuristic(h_dists, 3)
-
-prisoners_dilemma = Game([[3 0];[4 1]], [[3 4]; [0 1]])
-prisoners_dilemma = Game(prisoners_dilemma.row .*2, prisoners_dilemma.col .*2)
-
-
-level_0 = Heuristic(0.5, 1., 0.0)
-level_1 = Heuristic(0., 0., 10.)
-noisy = Heuristic(0.2, 1., 0.9)
-maximin = Heuristic(0., -10., 10.)
-maxjoint = Heuristic(0.5, 10., 10.)
-
-
-ρ = 0.6
-n_games = 1000
-game_size = 3
-method = :probabilistic_descent
-opp_h = noisy
-correct_level_2 = SimHeuristic([opp_h, Heuristic(0., 0., 10.)], 2)
-correct_level_3 = SimHeuristic([Heuristic(0., 0., 0.), opp_h, Heuristic(0., 0., 10.)], 3)
-println("Compare with ρ = ", ρ)
-training_games = [Game(game_size, ρ) for i in range(1,n_games)];
-
-
-test_games = [Game(game_size, ρ) for i in range(1,n_games)];
-println("Level-0: \t", payoff(level_0, opp_h, training_games))
-println("Level-1: \t", payoff(level_1, opp_h, training_games))
-println("Level-2: \t", payoff(correct_level_2, opp_h, training_games))
-println("Level-3: \t", payoff(correct_level_3, opp_h, training_games))
-println("Maximin: \t", payoff(maximin, opp_h, training_games))
-println("Max joint: \t",payoff(maxjoint, opp_h, training_games))
-
-opt_h!(h, opp_h, training_games, h_dists; max_time=10., method=method)
-println(h, "    ", payoff(h, opp_h, training_games))
-opt_s!(s, opp_h, training_games, h_dists; max_time=20., method=method)
-println(s, "    ", payoff(s, opp_h, training_games))
-opt_s!(s3, opp_h, training_games, h_dists; max_time=30., method=method)
-println(s3,"    ",  payoff(s3, opp_h, training_games))
-
-
-println("Test games:")
-
-println("Best h: \t", payoff(h, opp_h, test_games))
-println("Best s2: \t", payoff(s, opp_h, test_games))
-println("Best s3: \t", payoff(s3, opp_h, test_games))
-println("Level-0: \t", payoff(level_0, opp_h, test_games))
-println("Level-1: \t", payoff(level_1, opp_h, test_games))
-# println("Level-2: \t", payoff(level_2, opp_h, test_games))
-println("Maximin: \t", payoff(maximin, opp_h, test_games))
-println("Sum joint: \t",payoff(maxjoint, opp_h, test_games))
-
-
-println(@sprintf("PD for h: %0.f", decide(h, prisoners_dilemma)))
-println(@sprintf("PD for s2: %0.f", decide(s, prisoners_dilemma)))
-println(@sprintf("PD for s3: %0.f", decide(s3, prisoners_dilemma)))
-
-for ρ in -1.:0.2:1.
-    println("----- ρ=", ρ, " -----")
-    h = Heuristic(h_dists)
-    games = [Game(game_size, ρ) for i in range(1,n_games)]
-    opt_h!(h, opp_h, games, h_dists; max_time=10., method=method)
-    println(h, "    ", payoff(h, opp_h, games))
-    println(@sprintf("PD for h: %0.f", decide(h, prisoners_dilemma)))
-    println("Level-1: \t", payoff(level_1, opp_h, games))
-end
-
-ρ = -0.5
-games = [Game(game_size, ρ) for i in range(1,n_games)]
-for method in [:separable_nes, :de_rand_1_bin, :de_rand_2_bin, :generating_set_search, :probabilistic_descent, :resampling_memetic_search, :generating_set_search]
-    h = Heuristic(h_dists)
-    opt_h!(h, opp_h, games, h_dists; max_time=10., method=method, trace=:silent)
-    println("Using optimizer: ", method)
-    println(h, "    ", payoff(h, opp_h, games))
-end
-
-
-#
-# function print_result(h)
-#     println("-"^70)
-#     println(h)
-#     println("train score ", payoff(h, opp_h, training_games))
-#     println("test score  ", payoff(h, opp_h, test_games))
-# end
-#
-# for i in 1:3
-#     training_games = [Game(game_size, ρ) for i in range(1,n_games)];
-#     test_games = [Game(game_size, ρ) for i in range(1,n_games)];
-#     opt_h!(h, opp_h, training_games, h_dists; max_time=10.)
-#     println("-"^70)
-#     println(h)
-#     println("train score ", payoff(h, opp_h, training_games))
-#     println("test score  ", payoff(h, opp_h, test_games))
-# end
-#
-# function print_result(h)
-#     println("-"^70)
-#     println(h)
-#     println("train score ", payoff(h, opp_h, training_games))
-#     println("test score  ", payoff(h, opp_h, test_games))
-# end
-#
-# for i in 1:3
-#     training_games = [Game(game_size, ρ) for i in range(1,n_games)];
-#     test_games = [Game(game_size, ρ) for i in range(1,n_games)];
-#     opt_h!(h, opp_h, training_games, h_dists; max_time=10.)
-#     println("-"^70)
-#     println(h)
-#     println("train score ", payoff(h, opp_h, training_games))
-#     println("test score  ", payoff(h, opp_h, test_games))
-# end
-#
-#
-# opt_s!(s, opp_h, training_games, h_dists; max_time=20.)
-# println(s, "    ", payoff(s, opp_h, training_games))
-# opt_s!(s3, opp_h, training_games, h_dists; max_time=30.)
-# println(s3,"    ",  payoff(s3, opp_h, training_games))
-#
-#
-# println("Test games:")
-#
-# println("Best h: \t", payoff(h, opp_h, test_games))
-# println("Best s2: \t", payoff(s, opp_h, test_games))
-# println("Best s3: \t", payoff(s3, opp_h, test_games))
-# println("Level-0: \t", payoff(level_0, opp_h, test_games))
-# println("Level-1: \t", payoff(level_1, opp_h, test_games))
-# # println("Level-2: \t", payoff(level_2, opp_h, test_games))
-# println("Maximin: \t", payoff(maximin, opp_h, test_games))
-# println("Sum joint: \t",payoff(maxjoint, opp_h, test_games))
-#
-#
-# println(@sprintf("PD for h: %0.f", decide(h, prisoners_dilemma)))
-# # level_2 = SimHeuristic(level_1, level_1, 4.)
-# # maximin = Heuristic(1,1,0,0,4, (+), minimum)
-# # sum_prod = Heuristic(1,1,1,1,4, (*), sum)
-# # max_prod = Heuristic(1,1,1,1,4, (*), maximum)
-# # max_sum = Heuristic(1,1,1,1,4, (+), maximum)
-# # sum_sum = Heuristic(1,1,1,1,4, (+), sum)
