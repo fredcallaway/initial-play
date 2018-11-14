@@ -5,7 +5,7 @@ import StatsBase: sample, Weights
 import Base
 import DataStructures: OrderedDict
 using BlackBoxOptim
-import Printf: @printf
+import Printf: @printf, @sprintf
 
 function sample_cell(ρ; max=10, min=0, µ=5, σ=5)
     if ρ < 1 && ρ > -1
@@ -243,7 +243,7 @@ println("Maximin: \t", payoff(maximin, opp_h, test_games))
 println("Sum joint: \t",payoff(maxjoint, opp_h, test_games))
 
 
-println(@printf("PD for h: %0.f0", decide(h, prisoners_dilemma)))
+println(@sprintf("PD for h: %0.f", decide(h, prisoners_dilemma)))
 # level_2 = SimHeuristic(level_1, level_1, 4.)
 # maximin = Heuristic(1,1,0,0,4, (+), minimum)
 # sum_prod = Heuristic(1,1,1,1,4, (*), sum)
