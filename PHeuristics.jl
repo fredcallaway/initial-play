@@ -2,6 +2,7 @@ import Distributions: MvNormal
 import Distributions
 import StatsFuns: softmax
 import StatsBase: sample, Weights
+import Statistics: mean
 import Base
 import DataStructures: OrderedDict
 using BlackBoxOptim
@@ -54,16 +55,6 @@ Base.show(io::IO, g::Game) = begin
     end
 end
 
-
-function weighted_geo_mean(a,b, α)
-    return exp(α*log(a + 0.001) + (1-α)*log(b + 0.001))
-end
-
-function p_norm(vec::Vector{Float64}, p::Float64)
-    val = sum(vec.^p)
-    return val^(1/p)
-end
-
 mutable struct Heuristic
     α::Float64
     γ::Float64
@@ -84,15 +75,25 @@ SimHeuristic(dists::OrderedDict, level::Int64) = SimHeuristic([Heuristic(map(ran
 Base.show(io::IO, h::Heuristic) = @printf(io, "Heuristic: α=%.2f, γ=%.2f, λ=%.2f", h.α, h.γ, h.λ)
 
 h_dists = OrderedDict(
-    "α" => Distributions.Uniform(0,1),
+    "α" => Distributions.Uniform(0,10),
     "γ" => Distributions.Uniform(-10,10),
     "λ" => Distributions.Uniform(0,10),
 )
 
+function μ(mat::Matrix{Float64}, row::Int64=0)
+    if row == 0
+        return mean(mat)
+    else
+        return (mean(mat[row,:]))
+    end
+end
+
 function relative_values(h::Heuristic, game::Game)
     map(1:size(game)) do i
-        r = game.row[i, :]
-        c = game.col[i, :]
+        μ_r = μ(game.row)
+        μ_c = μ(game.col)
+        r = game.row[i, :] .- μ_r
+        c = game.col[i, :] .- μ_c
         s = map((r, c) -> r / (1 + exp(-h.α * c)), r, c)
         v = s' * softmax(h.γ * s)
     end
