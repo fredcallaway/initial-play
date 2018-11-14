@@ -7,7 +7,7 @@ import DataStructures: OrderedDict
 using BlackBoxOptim
 import Printf: @printf, @sprintf
 
-function sample_cell(ρ; max=10, min=0, µ=5, σ=5)
+function sample_cell(ρ; max=9.5, min=-0.5, µ=5, σ=5)
     if ρ < 1 && ρ > -1
         Σ = [[1 ρ]
              [ρ 1]]
@@ -84,27 +84,23 @@ SimHeuristic(dists::OrderedDict, level::Int64) = SimHeuristic([Heuristic(map(ran
 Base.show(io::IO, h::Heuristic) = @printf(io, "Heuristic: α=%.2f, γ=%.2f, λ=%.2f", h.α, h.γ, h.λ)
 
 h_dists = OrderedDict(
-"α" => Distributions.Uniform(0,1),
-"γ" => Distributions.Uniform(-10,10),
-"λ" => Distributions.Uniform(0,10),
+    "α" => Distributions.Uniform(0,1),
+    "γ" => Distributions.Uniform(-10,10),
+    "λ" => Distributions.Uniform(0,10),
 )
 
-
 function relative_values(h::Heuristic, game::Game)
-    v = zeros(size(game))
-    for i in 1:size(game)
+    map(1:size(game)) do i
         r = game.row[i, :]
         c = game.col[i, :]
-        s = map((x,y) -> weighted_geo_mean(x,y, h.α), r, c)
-        v[i] = p_norm(s, h.γ)
+        s = map((r, c) -> r / (1 + exp(-h.α * c)), r, c)
+        v = s' * softmax(h.γ * s)
     end
-    return v
 end
-
 
 function decide(h::Heuristic, game::Game)
     v = relative_values(h, game)
-    v = softmax(h.λ*v)
+    v = softmax(h.λ * v)
     choice = sample(1:length(v), Weights(v))
 end
 
@@ -147,7 +143,7 @@ end
 
 opp_cols_played = (opp_h, games) -> [g.row[:,decide(opp_h, transpose(g))] for g in games]
 
-function fitness_from_col_play(h,    println(a) games, opp_plays)
+function fitness_from_col_play(h, games, opp_plays)
     payoff = 0
     for i in 1:length(games)
         decision = decide(h, games[i])
@@ -168,7 +164,7 @@ function opt_h!(h::Heuristic, opp_h::Heuristic, games, h_dists; max_time=20.0)
         return -fitness_from_col_play(h, games, opp_plays)
     end
     # res = bboptimize(opt_fun; SearchRange = (h_dists["β_r"].a ,h_dists["β_r"].b), NumDimensions = 4, MaxTime=10.0, Method = :separable_nes, TraceMode = :silent, TraceInterval =5.0)
-    res = bboptimize(opt_fun; SearchRange = [(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], MaxTime=max_time, TraceMode = :compact, TraceInterval =4.0)
+    res = bboptimize(opt_fun; SearchRange = [(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], MaxTime=max_time, TraceMode = :silent, TraceInterval =4.0)
     for (name, param) in zip(param_names, best_candidate(res))
         setfield!(h, name, param)
     end
@@ -189,7 +185,7 @@ function opt_s!(s::SimHeuristic, opp_h::Heuristic, games, h_dists; max_time=20.0
         end
         return -fitness_from_col_play(s, games, opp_plays)
     end
-    res = bboptimize(opt_fun; SearchRange = repeat([(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], outer=[s.level]), MaxTime=max_time, TraceMode = :compact, TraceInterval =4.0)
+    res = bboptimize(opt_fun; SearchRange = repeat([(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], outer=[s.level]), MaxTime=max_time, TraceMode = :silent, TraceInterval =4.0)
     res_params = best_candidate(res)
     for i in 1:s.level
         for j in 1:n_h_params
@@ -199,7 +195,12 @@ function opt_s!(s::SimHeuristic, opp_h::Heuristic, games, h_dists; max_time=20.0
     end
 end
 
-h = Heuristic(0.5, 1., 0.0)
+h = Heuristic(0, 0, 0.0)
+g = Game(3, 0.)
+g.row[1,2] = 100
+g
+relative_values(h, g)
+
 s = SimHeuristic(h_dists, 2)
 s3 = SimHeuristic(h_dists, 3)
 
@@ -213,24 +214,51 @@ maximin = Heuristic(1., -10., 10.)
 maxjoint = Heuristic(0.5, 10., 10.)
 
 
-ρ = 0.4
-n_games = 10000
-opp_h = noisy
+ρ = -0.99
+n_games = 1000
+game_size = 3
+opp_h = level_1
 println("Compare with ρ = ", ρ)
-training_games = [Game(2, ρ) for i in range(1,n_games)];
-test_games = [Game(2, ρ) for i in range(1,n_games)];
+training_games = [Game(game_size, ρ) for i in range(1,n_games)];
+
+
+test_games = [Game(game_size, ρ) for i in range(1,n_games)];
 println("Level-0: \t", payoff(level_0, opp_h, training_games))
 println("Level-1: \t", payoff(level_1, opp_h, training_games))
 println("Maximin: \t", payoff(maximin, opp_h, training_games))
 println("Max joint: \t",payoff(maxjoint, opp_h, training_games))
 
 opt_h!(h, opp_h, training_games, h_dists; max_time=10.)
+println(h, "    ", payoff(h, opp_h, training_games))
+
+function print_result(h)
+    println("-"^70)
+    println(h)
+    println("train score ", payoff(h, opp_h, training_games))
+    println("test score  ", payoff(h, opp_h, test_games))
+end
+for i in 1:3
+    training_games = [Game(game_size, ρ) for i in range(1,n_games)];
+    test_games = [Game(game_size, ρ) for i in range(1,n_games)];
+    opt_h!(h, opp_h, training_games, h_dists; max_time=10.)
+    println("-"^70)
+    println(h)
+    println("train score ", payoff(h, opp_h, training_games))
+    println("test score  ", payoff(h, opp_h, test_games))
+end
+
+
 opt_s!(s, opp_h, training_games, h_dists; max_time=20.)
+println(s, "    ", payoff(s, opp_h, training_games))
 opt_s!(s3, opp_h, training_games, h_dists; max_time=30.)
+println(s3,"    ",  payoff(s3, opp_h, training_games))
 
 g = Game(3, 0.5)
 
-
+for x in (0.1:.1:1)
+    p_norm(Float64[1, 5, 10], x)
+end
+[h, h]
 println("Test games:")
 
 println("Best h: \t", payoff(h, opp_h, test_games))
