@@ -1,6 +1,5 @@
 import Distributions: MvNormal
 import Distributions
-import StatsFuns: softmax
 import StatsBase: sample, Weights
 import Statistics: mean
 import Base
@@ -8,6 +7,12 @@ import DataStructures: OrderedDict
 using BlackBoxOptim
 import Optim
 import Printf: @printf, @sprintf
+
+function softmax(x)
+    ex = exp.(x)
+    ex ./= sum(ex)
+    ex
+end
 
 function sample_cell(ρ; max=9.5, min=-0.5, µ=5, σ=5)
     if ρ < 1 && ρ > -1
@@ -32,8 +37,8 @@ function sample_cell(ρ; max=9.5, min=-0.5, µ=5, σ=5)
 end
 
 struct Game
-    row::Matrix{Float64}
-    col::Matrix{Float64}
+    row::Matrix{Real}
+    col::Matrix{Real}
 end
 
 Game(size::Int, ρ::Number) = begin
@@ -57,9 +62,9 @@ Base.show(io::IO, g::Game) = begin
 end
 
 mutable struct Heuristic
-    α::Float64
-    γ::Float64
-    λ::Float64
+    α::Real
+    γ::Real
+    λ::Real
 end
 
 mutable struct SimHeuristic
@@ -68,6 +73,7 @@ mutable struct SimHeuristic
 end
 
 
+SimHeuristic(hs::Vector{Heuristic}) = SimHeuristic(hs, length(hs))
 
 Heuristic(dists::OrderedDict) = Heuristic(map(rand, dists.vals)...)
 
@@ -75,7 +81,7 @@ SimHeuristic(dists::OrderedDict, level::Int64) = SimHeuristic([Heuristic(map(ran
 
 Base.show(io::IO, h::Heuristic) = @printf(io, "Heuristic: α=%.2f, γ=%.2f, λ=%.2f", h.α, h.γ, h.λ)
 
-function μ(mat::Matrix{Float64}, row::Int64=0)
+function μ(mat::Matrix{Real}, row::Int64=0)
     if row == 0
         return mean(mat)
     else
@@ -147,7 +153,7 @@ end
 
 
 
-function payoff(h, opp_h::Union{Heuristic, Vector{Vector{Float64}}}, games)
+function payoff(h, opp_h::Union{Heuristic, Vector{Vector{Real}}}, games)
     payoff = 0
     if isa(opp_h, Heuristic)
         for g in games
@@ -167,7 +173,7 @@ end
 
 opp_cols_played = (opp_h, games) -> [g.row[:,decide(opp_h, transpose(g))] for g in games]
 
-function opt_h!(h::Heuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}, games, h_dists; max_time=20.0, method=:de_rand_1_bin, trace=:silent)
+function opt_h!(h::Heuristic, opp_h::Union{Heuristic,Vector{Vector{Real}}}, games, h_dists; max_time=20.0, method=:de_rand_1_bin, trace=:silent)
     if isa(opp_h, Heuristic)
         opp_plays = opp_cols_played(opp_h, games)
     else
@@ -187,7 +193,7 @@ function opt_h!(h::Heuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}, g
     end
 end
 
-function opt_s!(s::SimHeuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}, games, h_dists; max_time=20.0, method=method)
+function opt_s!(s::SimHeuristic, opp_h::Union{Heuristic,Vector{Vector{Real}}}, games, h_dists; max_time=20.0, method=method)
     if isa(opp_h, Heuristic)
         opp_plays = opp_cols_played(opp_h, games)
     else
@@ -216,7 +222,7 @@ function opt_s!(s::SimHeuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}
     end
 end
 
-function rand_heuristic_perf(h_dist::OrderedDict, opp_plays::Vector{Vector{Float64}}, games::Vector{Game}, level::Int64=1)
+function rand_heuristic_perf(h_dist::OrderedDict, opp_plays::Vector{Vector{Real}}, games::Vector{Game}, level::Int64=1)
     if level == 1
         h = Heuristic(h_dist)
     else
