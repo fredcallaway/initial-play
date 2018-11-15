@@ -5,7 +5,7 @@ import Statistics: mean
 import Base
 import DataStructures: OrderedDict
 using BlackBoxOptim
-import Optim
+using Optim
 import Printf: @printf, @sprintf
 
 function softmax(x)
@@ -89,6 +89,9 @@ function μ(mat::Matrix{Real}, row::Int64=0)
     end
 end
 
+opp_cols_played = (opp_h, games) -> [g.row[:,decide(opp_h, transpose(g))] for g in games]
+
+
 function relative_values(h::Heuristic, game::Game)
     map(1:size(game)) do i
         μ_r = μ(game.row)
@@ -152,7 +155,6 @@ function decide_probs(s::SimHeuristic, game::Game)
 end
 
 
-
 function payoff(h, opp_h::Union{Heuristic, Vector{Vector{Real}}}, games)
     payoff = 0
     if isa(opp_h, Heuristic)
@@ -171,57 +173,6 @@ function payoff(h, opp_h::Union{Heuristic, Vector{Vector{Real}}}, games)
 end
 
 
-opp_cols_played = (opp_h, games) -> [g.row[:,decide(opp_h, transpose(g))] for g in games]
-
-function opt_h!(h::Heuristic, opp_h::Union{Heuristic,Vector{Vector{Real}}}, games, h_dists; max_time=20.0, method=:de_rand_1_bin, trace=:silent)
-    if isa(opp_h, Heuristic)
-        opp_plays = opp_cols_played(opp_h, games)
-    else
-        opp_plays = opp_h
-    end
-    param_names = [:α, :γ, :λ]
-    init_params = [h.α, h.γ, h.λ]
-    function opt_fun(params)
-        for (name, param) in zip(param_names, params)
-            setfield!(h, name, param)
-        end
-        return -payoff(h, opp_plays, games)
-    end
-    res = bboptimize(opt_fun; SearchRange = [(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], MaxTime=max_time, Method=method, TraceMode = trace, TraceInterval =4.0)
-    for (name, param) in zip(param_names, best_candidate(res))
-        setfield!(h, name, param)
-    end
-end
-
-function opt_s!(s::SimHeuristic, opp_h::Union{Heuristic,Vector{Vector{Real}}}, games, h_dists; max_time=20.0, method=method)
-    if isa(opp_h, Heuristic)
-        opp_plays = opp_cols_played(opp_h, games)
-    else
-        opp_plays = opp_h
-    end
-    n_h_params = length(fieldnames(Heuristic))
-    param_names = repeat([:α, :γ, :λ], outer=[s.level])
-    h = s.h_list[1]
-    init_params = repeat([h.α, h.γ, h.λ], outer=[s.level])
-    function opt_fun(params)
-        for i in 1:s.level
-            for j in 1:n_h_params
-                param_idx = (i-1)*n_h_params + j
-                setfield!(s.h_list[i], param_names[j], params[param_idx])
-            end
-        end
-        return -payoff(s, opp_plays, games)
-    end
-    res = bboptimize(opt_fun; SearchRange = repeat([(h_dists["α"].a ,h_dists["α"].b), (h_dists["γ"].a ,h_dists["γ"].b), (h_dists["λ"].a ,h_dists["λ"].b)], outer=[s.level]), MaxTime=max_time,  Method=method, TraceMode = :silent, TraceInterval =4.0)
-    res_params = best_candidate(res)
-    for i in 1:s.level
-        for j in 1:n_h_params
-            param_idx = (i-1)*n_h_params + j
-            setfield!(s.h_list[i], param_names[j], res_params[param_idx])
-        end
-    end
-end
-
 function rand_heuristic_perf(h_dist::OrderedDict, opp_plays::Vector{Vector{Real}}, games::Vector{Game}, level::Int64=1)
     if level == 1
         h = Heuristic(h_dist)
@@ -231,3 +182,59 @@ function rand_heuristic_perf(h_dist::OrderedDict, opp_plays::Vector{Vector{Real}
     fitness = payoff(h, opp_plays, games)
     return (fitness, h)
 end
+
+
+# ---------- Optimization
+
+struct Costs
+    α::Float64
+    λ::Float64
+end
+
+function cost(h::Heuristic, c::Costs)
+    cost = abs(h.λ) * c.λ
+    cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
+    cost
+end
+sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
+
+
+SimHeuristic(x::Vector{T} where T <: Real) = begin
+     map(1:3:length(x)) do i
+        Heuristic(x[i:i+2]...)
+    end |> SimHeuristic
+end
+
+function loss(h::SimHeuristic, games, opp_plays, costs::Costs)
+    pay = 0
+    for i in eachindex(games)
+        p = decide_probs(h, games[i])
+        pay += p' * opp_plays[i]
+    end
+    -(pay / length(games) - sum(cost(h, costs) for h in h.h_list))
+end
+function loss(x::Vector{T} where T <: Real, games, opp_plays, costs)
+    loss(SimHeuristic(x), games, opp_plays, costs)
+end
+
+function optimize_h(level, games, opp_plays, costs; init_x=nothing)
+    loss_wrap(x) = loss(x, games, opp_plays, costs)
+    if init_x == nothing
+        init_x = ones(3 * level) * 0.1
+    end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    SimHeuristic(x)
+end
+function optimize_h(level, ρ, game_size, opp_h, costs; n_games=1000)
+    games = [Game(game_size, ρ) for i in range(1,n_games)]
+    opp_plays = opp_cols_played(opp_h, games);
+    optimize_h(level, games, opp_plays, costs)
+end
+
+
+struct Bounds
+    lower::Vector{Float64}
+    upper::Vector{Float64}
+end
+rand(b::Bounds) = b.lower .+ rand(3) .* (b.upper .- b.lower)
+rand(b::Bounds, level::Int64) = vcat([rand(b) for i in 1:level]...)
