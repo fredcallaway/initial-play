@@ -139,12 +139,12 @@ function decide_probs(s::SimHeuristic, game::Game)
     for i in 1:s.level
         if i == s.level
             probs = decide_probs(s.h_list[i], self_g)
-        elseif (s.level - 1) % 2 == 1
+        elseif (s.level - i) % 2 == 1
             opp_pred = decide_probs(s.h_list[i], opp_g)
-            self_g.row .*= opp_pred'
-        elseif (s.level - 1) % 2 == 0
+            self_g.row .*= (size(game) .* opp_pred')
+        elseif (s.level - i) % 2 == 0
             self_pred = decide_probs(s.h_list[i], self_g)
-            opp_g.row .*= self_pred'
+            opp_g.row .*= (size(game) .* self_pred')
         end
     end
     # println("Done, i=%f", i)

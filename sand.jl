@@ -20,8 +20,7 @@ SimHeuristic(x::Vector{T} where T <: Real) = begin
     end |> SimHeuristic
 end
 
-function loss(x, games, opp_plays, costs::Costs)
-    h = SimHeuristic(x)
+function loss(h::SimHeuristic, games, opp_plays, costs::Costs)
     pay = 0
     for i in eachindex(games)
         p = decide_probs(h, games[i])
@@ -29,10 +28,15 @@ function loss(x, games, opp_plays, costs::Costs)
     end
     -(pay / length(games) - sum(cost(h, costs) for h in h.h_list))
 end
+function loss(x::Vector{T} where T <: Real, games, opp_plays, costs)
+    loss(SimHeuristic(x), games, opp_plays, costs)
+end
 
-function optimize_h(level, games, opp_plays, costs)
+function optimize_h(level, games, opp_plays, costs; init_x=nothing)
     loss_wrap(x) = loss(x, games, opp_plays, costs)
-    init_x = ones(3 * level) * 0.1
+    if init_x == nothing
+        init_x = ones(3 * level) * 0.1
+    end
     x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
     SimHeuristic(x)
 end
@@ -42,14 +46,41 @@ function optimize_h(level, ρ, game_size, opp_h, costs; n_games=1000)
     optimize_h(level, games, opp_plays, costs)
 end
 
-h = optimize_h(3, 0.5, 3, Heuristic(0, 0, 10), Costs(0.01, 0.01))
+
+ρ = 0.5
+game_size = 3
+n_games = 1000
+games = [Game(game_size, ρ) for i in range(1,n_games)]
+opp_h = Heuristic(0, 0, 10)
+opp_plays = opp_cols_played(opp_h, games)
+costs = Costs(0.01, 0.01)
+
+init = [0, 0.1, 1.79, 0, 0.55, 1.81]
+init = ones(6) * .1
+h2 = optimize_h(2, games, opp_plays, costs; init_x=init)
+println(h2)
+println(loss(h2, games, opp_plays, costs))
+
+
+h3 = optimize_h(3, games, opp_plays, costs)
+println(h2)
+println(loss(h2, games, opp_plays, costs))
+println(h3)
+println(loss(h3, games, opp_plays, costs))
+
+h2 = optimize_h(2, 0.5, 3, Heuristic(0, 0, 10), Costs(0.01, 0.01))
+h3 = optimize_h(3, 0.5, 3, Heuristic(0, 0, 10), Costs(0.01, 0.01))
+
+
 g = Game(3, 0.5)
 h1 = deepcopy(h)
-h1.h_list[2].λ = 3
+h1.h_list[2].λ = 1
 decide_probs(h1, g)
+h1.level
 
 @time Optim.minimizer(optimize(loss, ones(3) * 0.1, BFGS(); autodiff = :forward))
 @time Optim.minimizer(optimize(loss2, ones(3) * 0.1, BFGS(); autodiff = :forward))
+
 
 
 
