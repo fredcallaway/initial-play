@@ -75,12 +75,6 @@ SimHeuristic(dists::OrderedDict, level::Int64) = SimHeuristic([Heuristic(map(ran
 
 Base.show(io::IO, h::Heuristic) = @printf(io, "Heuristic: α=%.2f, γ=%.2f, λ=%.2f", h.α, h.γ, h.λ)
 
-h_dists = OrderedDict(
-    "α" => Distributions.Uniform(0,10),
-    "γ" => Distributions.Uniform(-10,10),
-    "λ" => Distributions.Uniform(0,10),
-)
-
 function μ(mat::Matrix{Float64}, row::Int64=0)
     if row == 0
         return mean(mat)
@@ -132,19 +126,39 @@ function decide(s::SimHeuristic, game::Game)
 end
 
 
+function decide_probs(s::SimHeuristic, game::Game)
+    self_g = deepcopy(game)
+    opp_g = deepcopy(transpose(game))
+    probs = zeros(size(self_g))
+    for i in 1:s.level
+        if i == s.level
+            probs = decide_probs(s.h_list[i], self_g)
+        elseif (s.level - 1) % 2 == 1
+            opp_pred = decide_probs(s.h_list[i], opp_g)
+            self_g.row .*= opp_pred'
+        elseif (s.level - 1) % 2 == 0
+            self_pred = decide_probs(s.h_list[i], self_g)
+            opp_g.row .*= self_pred'
+        end
+    end
+    # println("Done, i=%f", i)
+    return probs
+end
+
+
 
 function payoff(h, opp_h::Union{Heuristic, Vector{Vector{Float64}}}, games)
     payoff = 0
     if isa(opp_h, Heuristic)
         for g in games
-            decision = decide(h, g)
+            decision_p = decide_probs(h, g)
             opp_decision = decide(opp_h, transpose(g))
-            payoff += g.row[decision, opp_decision]
+            payoff += decision_p' * g.row[decision, opp_decision]
         end
     else
         for i in 1:length(games)
-            decision = decide(h, games[i])
-            payoff += opp_h[i][decision]
+            decision_p = decide_probs(h, games[i])
+            payoff += decision_p' * opp_h[i]
         end
     end
     return payoff
@@ -200,4 +214,14 @@ function opt_s!(s::SimHeuristic, opp_h::Union{Heuristic,Vector{Vector{Float64}}}
             setfield!(s.h_list[i], param_names[j], res_params[param_idx])
         end
     end
+end
+
+function rand_heuristic_perf(h_dist::OrderedDict, opp_plays::Vector{Vector{Float64}}, games::Vector{Game}, level::Int64=1)
+    if level == 1
+        h = Heuristic(h_dist)
+    else
+        h = SimHeuristic(h_dist, level)
+    end
+    fitness = payoff(h, opp_plays, games)
+    return (fitness, h)
 end
