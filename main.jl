@@ -2,19 +2,21 @@
 import Base: rand
 using Distributed
 if length(workers()) == 1
-    addprocs(4)
+    addprocs(Sys.CPU_THREADS)
+    # addprocs(8)
 end
 @everywhere include("PHeuristics.jl")
 # include("PHeuristics.jl")
 
 @everywhere begin
-    ρ = 0.5
+    ρ = 0.
     game_size = 3
     n_games = 1000
-    level = 2
-    n_inits = 4
+    level = 3
+    # n_inits = 8
+    n_inits = Sys.CPU_THREADS
     bounds = Bounds([0., -1., 0.], [1., 1., 10.])
-    costs = Costs(0.01, 0.01)
+    costs = Costs(0.1, 0.05)
     opp_h = Heuristic(0, 0, 10)
 end
 
@@ -40,10 +42,24 @@ x_inits = [rand(bounds, level) for i in 1:n_inits]
     (h, train_score, test_score)
 end
 
+prisoners_dilemma = Game([[3 0];[4 1]], [[3 4]; [0 1]])
+prisoners_dilemma = Game(prisoners_dilemma.row .*2, prisoners_dilemma.col .*2)
+
 for (h, trn, tst) in res
-    println(h)
-    @printf "Train: %.3f   Test: %.3f" trn tst
+    println("----- ", h, " -----")
+    println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
+    println("PD behavior: ", decide_probs(h, prisoners_dilemma))
 end
+
+sort!(res, by= x -> x[2], rev=true)
+
+println("Best h on training", res[1])
+sort!(res, by= x -> x[3], rev=true)
+println("Best h on test", res[1])
+
+optimize_h(level, games, opp_plays, costs)
+
+
 #
 # ρ = 0.5
 # game_size = 3
