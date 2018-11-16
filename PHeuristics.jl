@@ -193,7 +193,10 @@ end
 
 function cost(h::Heuristic, c::Costs)
     cost = abs(h.λ) * c.λ
-    cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
+    # cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
+    cost += 2(sigmoid(5*sqrt((h.α)^2)) - 0.5) * c.α
+    cost += sqrt((h.α)^2)*0.001
+    cost += sqrt((h.γ)^2)*0.001
     cost
 end
 sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
@@ -222,7 +225,7 @@ function optimize_h(level, games, opp_plays, costs; init_x=nothing)
     if init_x == nothing
         init_x = ones(3 * level) * 0.1
     end
-    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(), Optim.Options(time_limit=60); autodiff = :forward))
     SimHeuristic(x)
 end
 function optimize_h(level, ρ, game_size, opp_h, costs; n_games=1000)
