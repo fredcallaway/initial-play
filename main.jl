@@ -32,7 +32,6 @@ test_opp_plays = opp_cols_played(opp_h, test_games);
 
 end
 
-
 function sample_init(n, level)
     X = (LHCoptim(n, 3*level, 1000)[1] .- 1) ./ n
     [bounds(X[i, :]) for i in 1:size(X)[1]]
@@ -53,8 +52,6 @@ for (h, trn, tst) in res
     @printf "Train: %.3f   Test: %.3f\n" trn tst
 end
 
-
-sample_init(3, 2)
 #
 # ρ = 0.5
 # game_size = 3
