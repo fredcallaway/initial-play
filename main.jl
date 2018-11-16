@@ -1,6 +1,7 @@
 
 import Base: rand
 using Distributed
+using LatinHypercubeSampling
 if length(workers()) == 1
     addprocs(4)
 end
@@ -10,7 +11,7 @@ end
 @everywhere begin
     ρ = 0.5
     game_size = 3
-    n_games = 1000
+    n_games = 100
     level = 2
     n_inits = 4
     bounds = Bounds([0., -1., 0.], [1., 1., 10.])
@@ -31,19 +32,29 @@ test_opp_plays = opp_cols_played(opp_h, test_games);
 
 end
 
-x_inits = [rand(bounds, level) for i in 1:n_inits]
-@time res = pmap(x_inits) do x
+
+function sample_init(n, level)
+    X = (LHCoptim(n, 3*level, 1000)[1] .- 1) ./ n
+    [bounds(X[i, :]) for i in 1:size(X)[1]]
+end
+
+# x_inits = [rand(bounds, level) for i in 1:n_inits
+n_init = 4
+level = 1
+@time res = pmap(sample_init(n_init, level)) do x
     h = optimize_h(level, games, opp_plays, costs; init_x=x)
     train_score = -loss(h, games, opp_plays, costs)
     test_score = -loss(h, test_games, test_opp_plays, costs)
     # println("Train score: ", train_score, "   Test score:  ", test_score)
     (h, train_score, test_score)
 end
-
 for (h, trn, tst) in res
     println(h)
-    @printf "Train: %.3f   Test: %.3f" trn tst
+    @printf "Train: %.3f   Test: %.3f\n" trn tst
 end
+
+
+sample_init(3, 2)
 #
 # ρ = 0.5
 # game_size = 3

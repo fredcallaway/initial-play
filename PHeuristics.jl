@@ -231,10 +231,10 @@ function optimize_h(level, ρ, game_size, opp_h, costs; n_games=1000)
     optimize_h(level, games, opp_plays, costs)
 end
 
-
 struct Bounds
     lower::Vector{Float64}
     upper::Vector{Float64}
 end
-rand(b::Bounds) = b.lower .+ rand(3) .* (b.upper .- b.lower)
-rand(b::Bounds, level::Int64) = vcat([rand(b) for i in 1:level]...)
+(b::Bounds)(noise) = vcat((b.lower .+ reshape(noise, 3, :) .* (b.upper .- b.lower))...)
+rand(b::Bounds) = b(rand(3))
+rand(b::Bounds, level::Int64) = b(rand(3*level))
