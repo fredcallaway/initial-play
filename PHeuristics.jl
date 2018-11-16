@@ -100,7 +100,8 @@ function relative_values(h::Heuristic, game::Game)
         r = game.row[i, :] .- μ_r
         c = game.col[i, :] .- μ_c
         s = map((r, c) -> r / (1 + exp(-h.α * c)), r, c)
-        v = s' * softmax(h.γ * s)
+        k = h.γ / (maximum(s) - minimum(s))
+        v = s' * softmax(k * s)
     end
 end
 
