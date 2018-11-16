@@ -10,7 +10,7 @@ end
 
 @everywhere begin
     include("PHeuristics.jl")
-    ρ = -0.7
+    ρ = 0.8
     game_size = 3
     n_games = 1000
     level = 1
@@ -22,22 +22,6 @@ end
     opp_h = Heuristic(0., 0., 5.)
     # opp_h = Heuristic(0., -1, 2.)
 end
-
-
-
-s = [-10, -8, 10]
-γ = -5:0.2:5
-ss = [ [-10, i, 10] for i in [-5, 0]]
-
-function foo()
-    f = plot()
-    println()
-    for s in ss
-        println(s)
-        plot!(γ, [s' * softmax(γ * s / )) for γ in γ])
-    end
-    f
-end; foo();
 
 # hline!(s)
 
@@ -65,7 +49,6 @@ function sample_init(n, level)
 end
 
 sample_init(5, 1)
-
 @time res = pmap(sample_init(n_inits, level)) do x
     h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x)
     train_score = -loss(h, train_games, train_opp_plays, costs)
@@ -87,7 +70,7 @@ sort!(res, by= x -> x[2], rev=true)
 for (h, trn, tst) in res
     println("----- ", h, " -----")
     println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
-    println("PD behavior: ", decide_probs(h, centipede_game))
+    println("PD behavior: ", decide_probs(h, prisoners_dilemma))
 end
 
 println("Best h on training", res[1])

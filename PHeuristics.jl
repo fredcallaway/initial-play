@@ -100,7 +100,7 @@ function relative_values(h::Heuristic, game::Game)
         r = game.row[i, :] .- μ_r
         c = game.col[i, :] .- μ_c
         s = map((r, c) -> r / (1 + exp(-h.α * c)), r, c)
-        k = h.γ / (maximum(s) - minimum(s))
+        k = h.γ / max(1., (maximum(s) - minimum(s)))
         v = s' * softmax(k * s)
     end
 end
@@ -197,8 +197,8 @@ function cost(h::Heuristic, c::Costs)
     cost = abs(h.λ) * c.λ
     # cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
     cost += 2(sigmoid(5(h.α)^2) - 0.5) * c.α
-    cost += (h.α)^2 *0.001
-    cost += (h.γ)^2 *0.001
+    cost += (h.α)^2 *0.01
+    cost += (h.γ)^2 *0.01
     cost
 end
 sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
@@ -243,3 +243,10 @@ end
 (b::Bounds)(noise) = vcat((b.lower .+ reshape(noise, 3, :) .* (b.upper .- b.lower))...)
 rand(b::Bounds) = b(rand(3))
 rand(b::Bounds, level::Int64) = b(rand(3*level))
+
+function sample_init(n, level)
+    n -= 1 # because we add 0.1s later
+    X = (LHCoptim(n, 3*level, 1000)[1] .- 1) ./ n
+    init = [bounds(X[i, :]) .+ 0.001 for i in 1:size(X)[1]]
+    push!(init, 0.001 * ones(3*level))
+end
