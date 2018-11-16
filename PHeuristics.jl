@@ -94,8 +94,8 @@ opp_cols_played = (opp_h, games) -> [g.row[:,decide(opp_h, transpose(g))] for g 
 
 function relative_values(h::Heuristic, game::Game)
     map(1:size(game)) do i
-        μ_r = μ(game.row, i)
-        μ_c = μ(game.col, i)
+        μ_r = μ(game.row)
+        μ_c = μ(game.col)
         r = game.row[i, :] .- μ_r
         c = game.col[i, :] .- μ_c
         s = map((r, c) -> r / (1 + exp(-h.α * c)), r, c)
@@ -194,9 +194,9 @@ end
 function cost(h::Heuristic, c::Costs)
     cost = abs(h.λ) * c.λ
     # cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
-    cost += 2(sigmoid(5*sqrt((h.α)^2)) - 0.5) * c.α
-    cost += sqrt((h.α)^2)*0.01
-    cost += sqrt((h.γ)^2)*0.01
+    cost += 2(sigmoid(5(h.α)^2) - 0.5) * c.α
+    cost += (h.α)^2 *0.001
+    cost += (h.γ)^2 *0.001
     cost
 end
 sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
