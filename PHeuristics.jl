@@ -5,6 +5,7 @@ import Statistics: mean
 import Base
 import DataStructures: OrderedDict
 using Optim
+using JSON
 import Printf: @printf, @sprintf
 # import Base: rand
 
@@ -98,7 +99,9 @@ function relative_values(h::Heuristic, game::Game)
         μ_c = μ(game.col)
         r = game.row[i, :] .- μ_r
         c = game.col[i, :] .- μ_c
-        s = map((r, c) -> r / (1 + exp(-h.α * c)), r, c)
+        a = h.α / max(1., (maximum(c) - minimum(c)))
+        # a = h.α / max(1., (maximum(c) - minimum(c)))
+        s = map((r, c) -> r / (1 + exp(-a * c)), r, c)
         k = h.γ / max(1., (maximum(s) - minimum(s)))
         v = s' * softmax(k * s)
     end
@@ -195,7 +198,7 @@ end
 function cost(h::Heuristic, c::Costs)
     cost = abs(h.λ) * c.λ
     # cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
-    cost += 2(sigmoid(5(h.α)^2) - 0.5) * c.α
+    cost += 2(sigmoid((10*h.α)^2) - 0.5) * c.α
     cost += (h.α)^2 *0.01
     cost += (h.γ)^2 *0.01
     cost
@@ -221,8 +224,22 @@ function loss(x::Vector{T} where T <: Real, games, opp_plays, costs)
     loss(SimHeuristic(x), games, opp_plays, costs)
 end
 
-function optimize_h(level, games, opp_plays, costs; init_x=nothing)
-    loss_wrap(x) = loss(x, games, opp_plays, costs)
+function loss_from_dist(h::SimHeuristic, games, opp_probs, costs::Costs)
+    pay = 0
+    for i in eachindex(games)
+        p = decide_probs(h, games[i])
+        for j in 1:size(games[i])
+            pay += (p' * games[i].row[:,j]) * opp_probs[i][j]
+        end
+    end
+    -(pay/length(games) - sum(cost(h, costs) for h in h.h_list))
+end
+function loss_from_dist(x::Vector{T} where T <: Real, games, opp_probs, costs)
+    loss_from_dist(SimHeuristic(x), games, opp_probs, costs)
+end
+
+function optimize_h(level, games, opp_plays, costs; init_x=nothing, loss_f = loss)
+    loss_wrap(x) = loss_f(x, games, opp_plays, costs)
     if init_x == nothing
         init_x = ones(3 * level) * 0.1
     end
@@ -248,4 +265,30 @@ function sample_init(n, level)
     X = (LHCoptim(n, 3*level, 1000)[1] .- 1) ./ n
     init = [bounds(X[i, :]) .+ 0.001 for i in 1:size(X)[1]]
     push!(init, 0.001 * ones(3*level))
+end
+
+
+function games_from_json(file_name)
+        games_json = ""
+        open(file_name) do f
+                games_json = read(f, String)
+        end
+        games_vec = []
+        games_json = JSON.parse(games_json)
+        for g in games_json
+                row = [g["row"][i][j] for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
+                col = [g["col"][i][j] for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
+                game = Game(row, col)
+                push!(games_vec, game)
+        end
+        return games_vec
+end
+
+function plays_vec_from_json(file_name)
+        json_string = ""
+        open(file_name) do f
+                json_string = read(f, String)
+        end
+        loaded_vec = JSON.parse(json_string)
+        convert(Array{Array{Float64,1},1}, loaded_vec)
 end
