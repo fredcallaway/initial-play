@@ -15,11 +15,11 @@ end
     ρ = 0.8
     game_size = 3
     n_games = 1000
-    level = 1
+    level = 2
     # n_inits = 8
     n_inits = Sys.CPU_THREADS
     bounds = Bounds([0., -1., 0.], [1., 1., 10.])
-    costs = Costs(0.01, 0.02)
+    costs = Costs(0.2, 0.2)
     opp_h = Heuristic(0.5, 3., 2.)
     opp_h = Heuristic(0., 0., 5.)
     # opp_h = Heuristic(0., -1, 2.)
@@ -63,12 +63,18 @@ end
 
 sample_init(5, 1)
 @time res = pmap(sample_init(n_inits, level)) do x
-    h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = loss_from_dist)
-    train_score = -loss_from_dist(h, train_games, train_opp_plays, costs)
-    test_score = -loss(h, test_games, test_opp_plays, costs)
-    # println("Train score: ", train_score, "   Test score:  ", test_score)
-    (h, train_score, test_score)
+    try
+        h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = loss_from_dist)
+        train_score = -loss_from_dist(h, train_games, train_opp_plays, costs)
+        test_score = -loss(h, test_games, test_opp_plays, costs)
+        # println("Train score: ", train_score, "   Test score:  ", test_score)
+        (h, train_score, test_score)
+    catch err
+        println(err)
+    end
 end
+
+res = filter(x -> x !== nothing, res)
 
 prisoners_dilemma = Game([[3 0];[4 1]], [[3 4]; [0 1]])
 prisoners_dilemma = Game(prisoners_dilemma.row .*2, prisoners_dilemma.col .*2)
@@ -89,8 +95,8 @@ end
 println("Best h on training", res[1])
 sort!(res, by= x -> x[3], rev=true)
 println("Best h on test", res[1])
-@printf("Level-2 exact perf: %.3f", loss(opt_level_2, train_games, train_opp_plays, costs))
-@printf("Level-2 cheap perf: %.3f", loss(opt_level_2_cheap, train_games, train_opp_plays, costs))
+@printf("Level-2 exact perf: %.3f", loss_from_dist(opt_level_2, train_games, train_opp_plays, costs))
+@printf("Level-2 cheap perf: %.3f", loss_from_dist(opt_level_2_cheap, train_games, train_opp_plays, costs))
 
 
 #%%
