@@ -13,7 +13,7 @@ end
     ρ = 0.8
     game_size = 3
     n_games = 1000
-    level = 1
+    level = 3
     # n_inits = 8
     n_inits = Sys.CPU_THREADS
     bounds = Bounds([0., -1., 0.], [1., 1., 10.])

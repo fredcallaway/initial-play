@@ -4,10 +4,9 @@ import StatsBase: sample, Weights
 import Statistics: mean
 import Base
 import DataStructures: OrderedDict
-using BlackBoxOptim
 using Optim
 import Printf: @printf, @sprintf
-import Base: rand
+# import Base: rand
 
 function softmax(x)
     ex = exp.(x)
@@ -241,8 +240,8 @@ struct Bounds
     upper::Vector{Float64}
 end
 (b::Bounds)(noise) = vcat((b.lower .+ reshape(noise, 3, :) .* (b.upper .- b.lower))...)
-rand(b::Bounds) = b(rand(3))
-rand(b::Bounds, level::Int64) = b(rand(3*level))
+Base.rand(b::Bounds) = b(rand(3))
+Base.rand(b::Bounds, level::Int64) = b(rand(3*level))
 
 function sample_init(n, level)
     n -= 1 # because we add 0.1s later
