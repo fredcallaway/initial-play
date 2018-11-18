@@ -56,7 +56,8 @@ Base.size(g::Game) = size(g.row)[1]
 Base.show(io::IO, g::Game) = begin
     for i in 1:size(g)
         for j in 1:size(g)
-            print(Int(g.row[i,j]), ",", Int(g.col[i,j]), "  ")
+            # print(Int(g.row[i,j]), ",", Int(g.col[i,j]), "  ")
+            @printf("%.1f ,%.1f | ", g.row[i,j], g.col[i,j])
         end
         println()
     end
@@ -100,7 +101,7 @@ function relative_values(h::Heuristic, game::Game)
         r = game.row[i, :] .- μ_r
         c = game.col[i, :] .- μ_c
         a = h.α / max(1., (maximum(c) - minimum(c)))
-        # a = h.α / max(1., (maximum(c) - minimum(c)))
+        # a = h.α
         s = map((r, c) -> r / (1 + exp(-a * c)), r, c)
         k = h.γ / max(1., (maximum(s) - minimum(s)))
         v = s' * softmax(k * s)
@@ -198,11 +199,12 @@ end
 function cost(h::Heuristic, c::Costs)
     cost = abs(h.λ) * c.λ
     # cost += 2(sigmoid(abs(5h.α)) - 0.5) * c.α
-    cost += 2(sigmoid((10*h.α)^2) - 0.5) * c.α
-    cost += (h.α)^2 *0.01
-    cost += (h.γ)^2 *0.01
+    cost += 2(sigmoid((h.α)^2) - 0.5) * c.α
+    cost += (h.α)^2 *0.1
+    cost += (h.γ)^2 *0.1
     cost
 end
+
 sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
 
 
@@ -237,6 +239,27 @@ end
 function loss_from_dist(x::Vector{T} where T <: Real, games, opp_probs, costs)
     loss_from_dist(SimHeuristic(x), games, opp_probs, costs)
 end
+
+function pred_cost(h::Heuristic, c::Costs)
+    cost = (h.λ)^2*0.01
+    cost += (h.α)^2 *0.01
+    cost += (h.γ)^2 *0.01
+    cost
+end
+
+function pred_loss(h::SimHeuristic, games, self_probs, costs::Costs)
+    pay = 0
+    for i in eachindex(games)
+        p = decide_probs(h, games[i])
+        pay +=  sum( (p - self_probs[i]).^2)
+    end
+    pay += sum(pred_cost(h, costs) for h in h.h_list)
+    (pay/length(games))
+end
+function pred_loss(x::Vector{T} where T <: Real, games, self_probs, costs)
+    pred_loss(SimHeuristic(x), games, self_probs, costs)
+end
+
 
 function optimize_h(level, games, opp_plays, costs; init_x=nothing, loss_f = loss)
     loss_wrap(x) = loss_f(x, games, opp_plays, costs)
@@ -276,8 +299,8 @@ function games_from_json(file_name)
         games_vec = []
         games_json = JSON.parse(games_json)
         for g in games_json
-                row = [g["row"][i][j] for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
-                col = [g["col"][i][j] for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
+                row = [g["row"][j][i] for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
+                col = [g["col"][j][i] for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
                 game = Game(row, col)
                 push!(games_vec, game)
         end
