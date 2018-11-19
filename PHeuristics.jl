@@ -240,10 +240,10 @@ function loss_from_dist(x::Vector{T} where T <: Real, games, opp_probs, costs)
     loss_from_dist(SimHeuristic(x), games, opp_probs, costs)
 end
 
-function pred_cost(h::Heuristic, c::Costs)
-    cost = (h.λ)^2*0.01
-    cost += (h.α)^2 *0.01
-    cost += (h.γ)^2 *0.01
+function pred_cost(h::Heuristic)
+    cost = (h.λ)^2*0.001
+    cost += (h.α)^2 *0.001
+    cost += (h.γ)^2 *0.001
     cost
 end
 
@@ -253,13 +253,38 @@ function pred_loss(h::SimHeuristic, games, self_probs, costs::Costs)
         p = decide_probs(h, games[i])
         pay +=  sum( (p - self_probs[i]).^2)
     end
-    pay += sum(pred_cost(h, costs) for h in h.h_list)
+    pay += sum(pred_cost(h) for h in h.h_list)
     (pay/length(games))
 end
 function pred_loss(x::Vector{T} where T <: Real, games, self_probs, costs)
     pred_loss(SimHeuristic(x), games, self_probs, costs)
 end
 
+
+function pred_loss(h::SimHeuristic, h2::SimHeuristic, α, games, self_probs)
+    pay = 0
+    for i in eachindex(games)
+        p = decide_probs(h, h2, α, games[i])
+        pay +=  sum( (p - self_probs[i]).^2)
+    end
+    pay += sum(pred_cost(h) for h in h.h_list)
+    (pay/length(games))
+end
+
+function pred_likelihood(h::SimHeuristic, games, self_probs, costs::Costs)
+    like = 0
+    for i in eachindex(games)
+        p = decide_probs(h, games[i])
+        for j in eachindex(p)
+            like +=  self_probs[i][j] * log(p[j])
+        end
+    end
+    like += sum(pred_cost(h) for h in h.h_list)
+    (-like/length(games))
+end
+function pred_likelihood(x::Vector{T} where T <: Real, games, self_probs, costs)
+    pred_likelihood(SimHeuristic(x), games, self_probs, costs)
+end
 
 function optimize_h(level, games, opp_plays, costs; init_x=nothing, loss_f = loss)
     loss_wrap(x) = loss_f(x, games, opp_plays, costs)
@@ -314,4 +339,67 @@ function plays_vec_from_json(file_name)
         end
         loaded_vec = JSON.parse(json_string)
         convert(Array{Array{Float64,1},1}, loaded_vec)
+end
+
+
+function sample_init(n, level)
+    n -= 1 # because we add 0.1s later
+    X = (LHCoptim(n, 3*level, 1000)[1] .- 1) ./ n
+    init = [bounds(X[i, :]) .+ 0.001 for i in 1:size(X)[1]]
+    push!(init, 0.001 * ones(3*level))
+end
+
+function decide_probs(s1::SimHeuristic, s2::SimHeuristic, α::Float64, game::Game)
+    s1_pred = decide_probs(s1, game)
+    s2_pred = decide_probs(s2, game)
+    pred = α*s1_pred .+ (1-α)s2_pred
+end
+
+function pred_loss(h::SimHeuristic, h2::SimHeuristic, α, games, self_probs)
+    pay = 0
+    for i in eachindex(games)
+        p = decide_probs(h, h2, α, games[i])
+        pay +=  sum( (p - self_probs[i]).^2)
+    end
+    pay += sum(pred_cost(h, costs) for h in h.h_list)
+    (pay/length(games))
+end
+
+function costs_preds(costs_1, costs_2, games, row_plays, col_plays)
+    s1 = optimize_h(1, games, col_plays, costs_1; init_x=[0.,0.,0.], loss_f = loss_from_dist)
+    s2 = optimize_h(2, games, col_plays, costs_2; loss_f = loss_from_dist)
+    function α_fun(α)
+         pred_loss(s1, s2, α, games, row_plays)
+    end
+    α = Optim.minimizer(optimize(α_fun, 0., 1.))
+    perf = α_fun(α)
+    return (perf, α, s1, s2)
+end
+
+function costs_preds(x::Vector, games, row_plays, col_plays)
+    costs_1 = Costs(x[1], x[2])
+    costs_2 = Costs(x[3], x[4])
+    costs_preds(costs_1, costs_2, games, row_plays, col_plays)
+end
+
+
+function costs_preds(costs_1, costs_2, α::Float64, games, row_plays, col_plays)
+    s1 = optimize_h(1, games, col_plays, costs_1; init_x=[0.,0.,0.], loss_f = loss_from_dist)
+    s2 = optimize_h(2, games, col_plays, costs_2; loss_f = loss_from_dist)
+    perf = pred_loss(s1, s2, α, games, row_plays)
+    return (perf, α, s1, s2)
+end
+function costs_preds(x::Vector, α::Float64, games, row_plays, col_plays)
+    costs_1 = Costs(x[1], x[2])
+    costs_2 = Costs(x[3], x[4])
+    costs_preds(costs_1, costs_2, α, games, row_plays, col_plays)
+end
+
+function rand_costs(α_l, α_u, λ_l, λ_u)
+    x = zeros(4)
+    x[1] = rand()*(α_u - α_l) + α_l
+    x[2] = rand()*(λ_u - λ_l) + λ_l
+    x[3] = rand()*(α_u - α_l) + α_l
+    x[4] = rand()*(λ_u - λ_l) + λ_l
+    return x
 end
