@@ -1,6 +1,7 @@
 using Distributed
 using LatinHypercubeSampling
 using Plots
+import StatsBase: sample
 
 if length(workers()) == 1
     addprocs(Sys.CPU_THREADS)
@@ -8,6 +9,19 @@ if length(workers()) == 1
 end
 # include("PHeuristics.jl")
 
+# Load list with experiment names:
+data_name_list = open("data/dataset_list.json") do f
+        JSON.parse(read(f, String))
+end
+
+game_names = open("data/game_names_list.json") do f
+    JSON.parse(read(f, String))
+end
+
+data_sets = unique(data_name_list)
+
+
+# %%
 
 
 @everywhere begin
@@ -15,11 +29,11 @@ end
     ρ = 0.8
     game_size = 3
     n_games = 1000
-    level = 2
+    level = 1
     # n_inits = 8
     n_inits = Sys.CPU_THREADS
-    bounds = Bounds([0., -1., 0.], [1., 1., 10.])
-    costs = Costs(0.2, 0.2)
+    bounds = Bounds([0., -3., 0.], [1., 3., 10.])
+    costs = Costs(0.1, 0.2)
     opp_h = Heuristic(0.5, 3., 2.)
     opp_h = Heuristic(0., 0., 5.)
     # opp_h = Heuristic(0., -1, 2.)
@@ -30,94 +44,302 @@ exp_games = games_from_json("data/games.json")
 exp_row_plays = plays_vec_from_json("data/rows_played.json")
 exp_col_plays = plays_vec_from_json("data/cols_played.json")
 
-exp_games[3].row
-exp_col_plays[3]
 
-# hline!(s)
+# %% Setting idx so train and set are the same for all optimizations
 
-train_games = exp_games
-train_opp_plays = exp_col_plays
-game_size = 3
-n_games = length(train_games)
-test_games = [Game(game_size, ρ) for i in range(1,n_games)]
-test_opp_plays = opp_cols_played(opp_h, test_games);
+n_train = 140
+train_idxs = sample(1:length(exp_games), n_train; replace=false)
+test_idxs = setdiff(1:length(exp_games), train_idxs)
+sort!(train_idxs)
+sort!(test_idxs)
 
-test_opp_plays
-
-opt_level_2 = SimHeuristic([opp_h, Heuristic(0.,0.,4.)])
-opt_level_2_cheap = SimHeuristic([Heuristic(0.,0.,2.), Heuristic(0.,0.,3.)])
+# %% Optimal play against actual data
 
 @everywhere begin
-    train_games = $train_games
-    test_games = $test_games
-    # train_opp_plays = $train_opp_plays
-    # test_opp_plays = $test_opp_plays
+    exp_games = $exp_games
+    exp_col_plays = $exp_col_plays
+    exp_row_plays = $exp_row_plays
+    train_idxs = $train_idxs
+    test_idxs = $test_idxs
+    train_games = $exp_games[train_idxs]
+    train_opp_plays = $exp_col_plays[train_idxs]
+    test_games = $exp_games[test_idxs]
+    test_opp_plays = $exp_col_plays[test_idxs]
+    costs = Costs(0.02, 0.13)
+    level = 1
 end
 
-function sample_init(n, level)
-    n -= 1 # because we add 0.1s later
-    X = (LHCoptim(n, 3*level, 1000)[1] .- 1) ./ n
-    init = [bounds(X[i, :]) .+ 0.001 for i in 1:size(X)[1]]
-    push!(init, 0.001 * ones(3*level))
-end
-
-sample_init(5, 1)
-@time res = pmap(sample_init(n_inits, level)) do x
+@time opt_res1 = pmap(sample_init(n_inits, level)) do x
     try
         h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = loss_from_dist)
         train_score = -loss_from_dist(h, train_games, train_opp_plays, costs)
-        test_score = -loss(h, test_games, test_opp_plays, costs)
-        # println("Train score: ", train_score, "   Test score:  ", test_score)
+        test_score = -loss_from_dist(h, test_games, test_opp_plays, costs)
         (h, train_score, test_score)
     catch err
         println(err)
     end
 end
 
-res = filter(x -> x !== nothing, res)
 
-prisoners_dilemma = Game([[3 0];[4 1]], [[3 4]; [0 1]])
-prisoners_dilemma = Game(prisoners_dilemma.row .*2, prisoners_dilemma.col .*2)
+opt_res1 = filter(x -> x !== nothing, opt_res1)
+sort!(opt_res1, by= x -> x[2], rev=true)
 
-centipede_game = Game(
-    [[2 2 2 2 2]; [1 4 4 4 4]; [1 3 10 10 10]; [1 3 5 18 18]; [1 3 5 7 30]],
-    [[0 0 0 0 0]; [3 1 1 1 1]; [3 7 4 4 4]; [3 7 13 6 6]; [3 7 13 23 8]]
-)
 
-sort!(res, by= x -> x[2], rev=true)
-
-for (h, trn, tst) in res
+for (h, trn, tst) in opt_res1
     println("----- ", h, " -----")
     println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
-    println("PD behavior: ", decide_probs(h, prisoners_dilemma))
+end
+#%% Opt for level 2
+
+@everywhere begin
+    level = 2
+    costs = Costs(0.015, 0.1)
 end
 
-println("Best h on training", res[1])
-sort!(res, by= x -> x[3], rev=true)
-println("Best h on test", res[1])
-@printf("Level-2 exact perf: %.3f", loss_from_dist(opt_level_2, train_games, train_opp_plays, costs))
-@printf("Level-2 cheap perf: %.3f", loss_from_dist(opt_level_2_cheap, train_games, train_opp_plays, costs))
+@time opt_res2 = pmap(sample_init(n_inits, level)) do x
+    try
+        h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = loss_from_dist)
+        train_score = -loss_from_dist(h, train_games, train_opp_plays, costs)
+        test_score = -loss_from_dist(h, test_games, test_opp_plays, costs)
+        (h, train_score, test_score)
+    catch err
+        println(err)
+    end
+end
 
+opt_res2 = filter(x -> x !== nothing, opt_res2)
+sort!(opt_res2, by= x -> x[2], rev=true)
+
+
+for (h, trn, tst) in opt_res2
+    println("----- ", h, " -----")
+    println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
+end
+
+
+# %% Predict using MSD
+@everywhere begin
+    train_idxs = $train_idxs
+    test_idxs = $test_idxs
+    train_games = $exp_games[train_idxs]
+    train_opp_plays = $exp_row_plays[train_idxs]
+    test_games = $exp_games[test_idxs]
+    test_opp_plays = $exp_row_plays[test_idxs]
+    costs = Costs(0.05, 0.2)
+    level = 2
+end
+
+
+@time msd_res = pmap(sample_init(n_inits, level)) do x
+    try
+        h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = pred_loss)
+        train_score = pred_loss(h, train_games, train_opp_plays, costs)
+        test_score = pred_loss(h, test_games, test_opp_plays, costs)
+        (h, train_score, test_score)
+    catch err
+        println(err)
+    end
+end
+
+msd_res = filter(x -> x !== nothing, msd_res)
+sort!(msd_res, by= x -> x[2], rev=false)
+
+for (h, trn, tst) in msd_res
+    println("----- ", h, " -----")
+    println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
+end
+
+#%% Predicting using maximum likelihood
+@everywhere begin
+    train_idxs = $train_idxs
+    test_idxs = $test_idxs
+    train_games = $exp_games[train_idxs]
+    train_opp_plays = $exp_row_plays[train_idxs]
+    test_games = $exp_games[test_idxs]
+    test_opp_plays = $exp_row_plays[test_idxs]
+    costs = Costs(0.05, 0.2)
+    level = 2
+end
+
+
+@time ML_res = pmap(sample_init(n_inits, level)) do x
+    try
+        h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = pred_likelihood)
+        train_score = -pred_likelihood(h, train_games, train_opp_plays, costs)
+        test_score = -pred_likelihood(h, test_games, test_opp_plays, costs)
+        (h, train_score, test_score)
+    catch err
+        println(err)
+    end
+end
+
+ML_res = filter(x -> x !== nothing, ML_res)
+sort!(ML_res, by= x -> x[2], rev=true)
+
+for (h, trn, tst) in ML_res
+    println("----- ", h, " -----")
+    println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
+end
+
+# %% Finding best predicting quantal level-k models.
+function PQLK_pred(game::Game; λ=1.03, τ=0.5)
+    level_0 = SimHeuristic([0.0,0.0,0.0])
+    level_1 = SimHeuristic([0.0,0.0,λ])
+    level_2 = SimHeuristic([0.0,0.0,λ, 0.0, 0.0, λ])
+    π_dist = Distributions.Poisson(τ)
+    p_vals = [Distributions.pdf(π_dist, i) for i in 0:2]
+    p_vals ./ sum(p_vals)
+    l0_pred = decide_probs(level_0, game)
+    l1_pred = decide_probs(level_1, game)
+    l2_pred = decide_probs(level_2, game)
+    pred = l0_pred*p_vals[1] + l1_pred*p_vals[2] + l2_pred*p_vals[3]
+end
+
+function QLK_pred(game::Game; λ=2.3, α_0=0.07, α_1=0.64)
+    level_0 = SimHeuristic([0.0,0.0,0.0])
+    level_1 = SimHeuristic([0.0,0.0,λ])
+    level_2 = SimHeuristic([0.0,0.0,λ, 0.0, 0.0, λ])
+    α_2 = 1 - α_0 - α_1
+    l0_pred = decide_probs(level_0, game)
+    l1_pred = decide_probs(level_1, game)
+    l2_pred = decide_probs(level_2, game)
+    pred = l0_pred*α_0 + l1_pred*α_1 + l2_pred*α_2
+end
+
+function pred_loss(behavior_fun::Function, games, self_probs)
+    pay = 0
+    for i in eachindex(games)
+        p = behavior_fun(games[i])
+        pay +=  sum( (p - self_probs[i]).^2)
+    end
+    pay/length(games)
+end
+
+games = exp_games
+row_plays = exp_row_plays
+function wrap_pqlk(params)
+    f = x -> PQLK_pred(x,;λ=params[1], τ=params[2])
+    loss = pred_loss(f, games, row_plays)
+end
+wrap_pqlk([0.5, 1.03])
+
+function wrap_qlk(params)
+    f = x -> QLK_pred(x,;λ=params[1], α_0 =params[2], α_1=params[3])
+    loss = pred_loss(f, games, row_plays)
+end
+
+res = Optim.minimizer(optimize(wrap_qlk, [0.3, 0.3, 0.3], BFGS(), Optim.Options(time_limit=60)))
+wrap_qlk(res)
+
+####################################################
+# %% Finding optimal costs and share 1 vs 2 players
+###################################################
+
+function opt_cost_datasets(train_data_sets)
+    train_idx = filter(i -> data_name_list[i] in train_data_sets, 1:length(data_name_list))
+    train_games = exp_games[train_idx]
+    train_row_plays = exp_row_plays[train_idx]
+    train_col_plays = exp_col_plays[train_idx]
+
+    @everywhere begin
+        train_games = $train_games
+        train_row_plays = $train_row_plays
+        train_col_plays = $train_col_plays
+    end
+
+    costs_perf = pmap(1:1000) do x
+        try
+            costs = rand_costs(0.01, 0.2, 0.01, 0.4)
+            res = costs_preds(costs, train_games, train_row_plays, train_col_plays)
+            (res[1], costs, res[2:4]...)
+        catch err
+            pass
+        end
+    end
+    costs_perf = filter(x -> x !== nothing, costs_perf)
+    sort!(costs_perf, by= x -> x[1], rev=false)
+    costs_perf[1]
+end
+
+opt = opt_cost_datasets(data_sets)
+
+
+
+opts = map(data_sets) do x
+    opt_cost_datasets([x])
+end
+
+
+
+#%% Code for inspecting and comparing the different predictions
+opt_s = deepcopy(opt_res[1][1])
+msd_s = deepcopy(msd_res[1][1])
+ML_s = deepcopy(ML_res[1][1])
+opt_s1 = costs_perf[1][4]
+opt_s2 = costs_perf[1][5]
+opt_α = costs_perf[1][3]
+# s.h_list[1].γ = 1.
+# # s.h_list[1].α = 2.
+# s.h_list[1].λ = 5.
+pred_loss(opt_s, exp_games, exp_row_plays, costs)
+pred_loss(opt_s1, opt_s2, 0.7, exp_games, exp_row_plays, costs)
+
+i = 3
+
+println("Game: ")
+println(exp_games[i])
+println("MSD :", decide_probs(msd_s, exp_games[i]))
+println("ML :", decide_probs(ML_s, exp_games[i]))
+println("OPT :", decide_probs(opt_s, exp_games[i]))
+println("PQLK: ", QLK_pred(exp_games[i]))
+println("Opt 2 types: ", decide_probs(opt_s1, opt_s2, opt_α, exp_games[i]))
+println("Actual: ", exp_row_plays[i])
+
+
+
+
+# %%
+idx = 4
+idx_to_look_at = filter(i -> data_name_list[i] in data_sets[idx:idx], 1:length(data_name_list))
+for i in idx_to_look_at
+    println("Game: ", game_names[i])
+    println(exp_games[i])
+    println("MSD :", decide_probs(msd_s, exp_games[i]))
+    println("ML :", decide_probs(ML_s, exp_games[i]))
+    println("OPT :", decide_probs(opt_s, exp_games[i]))
+    println("PQLK: ", QLK_pred(exp_games[i]))
+    println("Opt 2 types: ", decide_probs(opt_s1, opt_s2, opt_α, exp_games[i]))
+    println("Actual: ", exp_row_plays[i])
+    println()
+end
+
+pred_loss(opt_s1, opt_s2, 0.7, exp_games[idx_to_look_at], exp_row_plays[idx_to_look_at], costs)
 
 #%%
-@printf("Level-2 exact perf: %.3f \n", loss(opt_level_2, train_games, train_opp_plays, costs))
-@printf("Level-2 cheap perf: %.3f \n", loss(opt_level_2_cheap, train_games, train_opp_plays, costs))
+opts
+
+opt_costs = opts[2][2]
+perf_per_dataset = map(data_sets) do x
+    idx = filter(i -> data_name_list[i] == x, 1:length(data_name_list))
+    res = costs_preds(opt_costs, exp_games[idx], exp_row_plays[idx], exp_col_plays[idx])
+    res
+end
+
+α = 0.7
+costs_perf = pmap(1:400) do x
+    try
+        costs = rand_costs(0.01, 0.2, 0.01, 0.4)
+        perfs = map(data_sets) do x
+            idx = filter(i -> data_name_list[i] == x, 1:length(data_name_list))
+            res = costs_preds(costs, α, exp_games[idx], exp_row_plays[idx], exp_col_plays[idx])
+            res
+        end
+        res = mean([x[1] for x in perfs])
+        (res, costs)
+    catch err
+        pass
+    end
+end
 
 
-best_1 = optimize_h(1, train_games, train_opp_plays, costs)
-@printf("Best level_1 cheap perf: %.3f , %s \n", loss(best_1, train_games, train_opp_plays, costs), best_1)
-
-
-
-#
-# ρ = 0.5
-# game_size = 3
-# n_games = 1000
-# level = 2
-# games = [Game(game_size, ρ) for i in range(1,n_games)]
-# opp_h = Heuristic(0, 0, 10)
-# opp_plays = opp_cols_played(opp_h, games)
-# costs = Costs(0.01, 0.01)
-# x_inits = [rand(3 * level) for i in 1:3]
-# opt_hs = map(x -> optimize_h(level, games, opp_plays, costs; init_x=x), x_inits)
-# # rand(3) isa Vector{Real}
+sort!(costs_perf, by= x-> x[1])

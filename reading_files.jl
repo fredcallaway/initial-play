@@ -21,9 +21,9 @@ function get_game(g_name)
                         p1_payoffs = payoff_list[filter(x -> x % 2 == 1, 1:length(payoff_list))]
                         p2_payoffs = payoff_list[filter(x -> x % 2 == 0, 1:length(payoff_list))]
                         game = Game(reshape(p1_payoffs, (p1_n, p2_n)), reshape(p2_payoffs, (p1_n, p2_n)))
-                        if maximum(game.row)  < 10
-                                game.row .*= 10
-                                game.col .*= 10
+                        if maximum(game.row) > 10
+                                game.row ./= 10
+                                game.col ./= 10
                         end
                 end
         end
@@ -66,6 +66,9 @@ opp_cols_played = [x["plays"] for x in sym_games_list]
 self_rows_played = [x["plays"] for x in sym_games_list]
 
 
+data_set_vec = [x["data_set"] for x in sym_games_list]
+game_names_vec = [x["name"] for x in sym_games_list]
+
 for dict in asym_games_list
         push!(games, dict["game"])
         push!(games, transpose(dict["game"]))
@@ -73,8 +76,14 @@ for dict in asym_games_list
         push!(opp_cols_played, dict["p1_plays"])
         push!(self_rows_played, dict["p1_plays"])
         push!(self_rows_played, dict["p2_plays"])
+        push!(data_set_vec, dict["data_set"])
+        push!(data_set_vec, dict["data_set"])
+        push!(game_names_vec, dict["name"])
+        push!(game_names_vec, dict["name"])
 end
 
+
+game_names_vec
 
 # json_games = JSON.json(games)
 #
@@ -104,10 +113,19 @@ open("data/cols_played.json", "w") do f
         write(f, json_cols_played)
 end
 
+open("data/dataset_list.json", "w") do f
+        json_datasets = JSON.json(data_set_vec)
+        write(f, json_datasets)
+end
+
+open("data/game_names_list.json", "w") do f
+        json_names = JSON.json(game_names_vec)
+        write(f, json_names)
+end
 
 #%%
 
-games_from_json("data/games.json")
+games_from_json("data/games.json")[1]
 
 function games_from_json(file_name)
         games_json = ""
@@ -117,8 +135,8 @@ function games_from_json(file_name)
         games_vec = []
         games_json = JSON.parse(games_json)
         for g in games_json
-                row = [g["row"][i][j] for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
-                col = [g["col"][i][j] for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
+                row = [g["row"][j][i] for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
+                col = [g["col"][j][i] for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
                 game = Game(row, col)
                 push!(games_vec, game)
         end
@@ -127,4 +145,10 @@ end
 plays_vec_from_json("data/cols_played.json")
 plays_vec_from_json("data/rows_played.json")
 
-games
+vector_list
+vector_list = open("data/dataset_list.json") do f
+        vector_list = JSON.parse(read(f, String))
+end
+
+
+vector_list
