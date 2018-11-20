@@ -5,8 +5,6 @@ mutable struct CellHeuristic
     λ::Real
 end
 
-#%%
-
 function normalize(g::Game)
     Game(g.row .- mean(g.row), g.col .- mean(g.col))
 end
@@ -26,4 +24,3 @@ end
 g = Game(3, 1.)
 h = CellHeuristic(1., 3.)
 decide_probs(h, g)
-#%%
