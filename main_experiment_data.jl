@@ -2,6 +2,7 @@ using Distributed
 using LatinHypercubeSampling
 using Plots
 import StatsBase: sample
+using JSON
 
 if length(workers()) == 1
     addprocs(Sys.CPU_THREADS)
@@ -47,7 +48,7 @@ exp_col_plays = plays_vec_from_json("data/cols_played.json")
 
 # %% Setting idx so train and set are the same for all optimizations
 
-n_train = 140
+n_train = 100
 train_idxs = sample(1:length(exp_games), n_train; replace=false)
 test_idxs = setdiff(1:length(exp_games), train_idxs)
 sort!(train_idxs)
@@ -122,19 +123,19 @@ end
     train_idxs = $train_idxs
     test_idxs = $test_idxs
     train_games = $exp_games[train_idxs]
-    train_opp_plays = $exp_row_plays[train_idxs]
+    train_row_plays = $exp_row_plays[train_idxs]
     test_games = $exp_games[test_idxs]
-    test_opp_plays = $exp_row_plays[test_idxs]
+    test_row_plays = $exp_row_plays[test_idxs]
     costs = Costs(0.05, 0.2)
-    level = 2
+    level = 1
 end
 
 
 @time msd_res = pmap(sample_init(n_inits, level)) do x
     try
-        h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = pred_loss)
-        train_score = pred_loss(h, train_games, train_opp_plays, costs)
-        test_score = pred_loss(h, test_games, test_opp_plays, costs)
+        h = optimize_h(level, train_games, train_row_plays, costs; init_x=x, loss_f = pred_loss)
+        train_score = pred_loss(h, train_games, train_row_plays)
+        test_score = pred_loss(h, test_games, test_row_plays)
         (h, train_score, test_score)
     catch err
         println(err)
@@ -149,24 +150,25 @@ for (h, trn, tst) in msd_res
     println(@sprintf "Train: %.3f   Test: %.3f" trn tst)
 end
 
+
 #%% Predicting using maximum likelihood
 @everywhere begin
     train_idxs = $train_idxs
     test_idxs = $test_idxs
     train_games = $exp_games[train_idxs]
-    train_opp_plays = $exp_row_plays[train_idxs]
+    train_row_plays = $exp_row_plays[train_idxs]
     test_games = $exp_games[test_idxs]
-    test_opp_plays = $exp_row_plays[test_idxs]
+    test_row_plays = $exp_row_plays[test_idxs]
     costs = Costs(0.05, 0.2)
-    level = 2
+    level = 1
 end
 
 
 @time ML_res = pmap(sample_init(n_inits, level)) do x
     try
-        h = optimize_h(level, train_games, train_opp_plays, costs; init_x=x, loss_f = pred_likelihood)
-        train_score = -pred_likelihood(h, train_games, train_opp_plays, costs)
-        test_score = -pred_likelihood(h, test_games, test_opp_plays, costs)
+        h = optimize_h(level, train_games, train_row_plays, costs; init_x=x, loss_f = pred_likelihood)
+        train_score = -pred_likelihood(h, train_games, train_row_plays, costs)
+        test_score = -pred_likelihood(h, test_games, test_row_plays, costs)
         (h, train_score, test_score)
     catch err
         println(err)
@@ -231,6 +233,7 @@ end
 res = Optim.minimizer(optimize(wrap_qlk, [0.3, 0.3, 0.3], BFGS(), Optim.Options(time_limit=60)))
 wrap_qlk(res)
 
+res
 ####################################################
 # %% Finding optimal costs and share 1 vs 2 players
 ###################################################
@@ -247,24 +250,32 @@ function opt_cost_datasets(train_data_sets)
         train_col_plays = $train_col_plays
     end
 
+    costs = rand_costs(0.01, 0.2, 0.01, 0.4)
+    res = costs_preds(costs, train_games, train_row_plays, train_col_plays)
+    println(res)
+
     costs_perf = pmap(1:1000) do x
         try
             costs = rand_costs(0.01, 0.2, 0.01, 0.4)
             res = costs_preds(costs, train_games, train_row_plays, train_col_plays)
-            (res[1], costs, res[2:4]...)
+            println(res)
+            if res != nothing
+                return (res[1], costs, res[2:4]...)
+            end
         catch err
-            pass
+            println(err)
         end
     end
     costs_perf = filter(x -> x !== nothing, costs_perf)
+    println(costs_perf)
     sort!(costs_perf, by= x -> x[1], rev=false)
     costs_perf[1]
 end
 
-opt = opt_cost_datasets(data_sets)
+opt_combo = opt_cost_datasets(data_sets)
 
 
-
+### Looking at optimal costs for different data_sets
 opts = map(data_sets) do x
     opt_cost_datasets([x])
 end
@@ -272,21 +283,24 @@ end
 
 
 #%% Code for inspecting and comparing the different predictions
-opt_s = deepcopy(opt_res[1][1])
+opt_s = deepcopy(opt_res1[1][1])
 msd_s = deepcopy(msd_res[1][1])
 ML_s = deepcopy(ML_res[1][1])
-opt_s1 = costs_perf[1][4]
-opt_s2 = costs_perf[1][5]
-opt_α = costs_perf[1][3]
+opt_s1 = opt_combo[4]
+opt_s2 = opt_combo[5]
+opt_α = opt_combo[3]
 # s.h_list[1].γ = 1.
 # # s.h_list[1].α = 2.
 # s.h_list[1].λ = 5.
-pred_loss(opt_s, exp_games, exp_row_plays, costs)
-pred_loss(opt_s1, opt_s2, 0.7, exp_games, exp_row_plays, costs)
+pred_loss(opt_s, exp_games, exp_row_plays)
+pred_loss(opt_s1, opt_s2, opt_α, exp_games, exp_row_plays)
 
-i = 3
+## See what indices pertain to a certain data set
+idx_to_look_at = filter(i -> data_name_list[i] == data_sets[6], 1:length(data_name_list))
 
-println("Game: ")
+i = 80
+
+println("Game: ", game_names[i])
 println(exp_games[i])
 println("MSD :", decide_probs(msd_s, exp_games[i]))
 println("ML :", decide_probs(ML_s, exp_games[i]))
@@ -295,11 +309,19 @@ println("PQLK: ", QLK_pred(exp_games[i]))
 println("Opt 2 types: ", decide_probs(opt_s1, opt_s2, opt_α, exp_games[i]))
 println("Actual: ", exp_row_plays[i])
 
+### Compare performance of opt_comb over data_sets
+println()
+for data_set in data_sets
+    idx = filter(i -> data_name_list[i] == data_set, 1:length(data_name_list))
+    # println(idx)
+    # println(pred_loss(opt_s1, opt_s2, opt_α, exp_games[idx], exp_row_plays[idx]))
+    println("Opt_comb for ", data_set, " : ", pred_loss(opt_s1, opt_s2, opt_α, exp_games[idx], exp_row_plays[idx]))
+    println("QLK for ", data_set, ": ", pred_loss(QLK_pred, exp_games[idx], exp_row_plays[idx]))
+end
 
 
-
-# %%
-idx = 4
+## Look at all predictions for a given data_set
+idx = 7
 idx_to_look_at = filter(i -> data_name_list[i] in data_sets[idx:idx], 1:length(data_name_list))
 for i in idx_to_look_at
     println("Game: ", game_names[i])
@@ -313,10 +335,9 @@ for i in idx_to_look_at
     println()
 end
 
-pred_loss(opt_s1, opt_s2, 0.7, exp_games[idx_to_look_at], exp_row_plays[idx_to_look_at], costs)
 
-#%%
-opts
+#%% Do locally optimized heuristics with global cognitive costs, performs bad
+
 
 opt_costs = opts[2][2]
 perf_per_dataset = map(data_sets) do x
@@ -325,6 +346,8 @@ perf_per_dataset = map(data_sets) do x
     res
 end
 
+
+### Find globally optimal costs for local optimization of heuristcs
 α = 0.7
 costs_perf = pmap(1:400) do x
     try

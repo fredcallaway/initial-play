@@ -247,7 +247,7 @@ function pred_cost(h::Heuristic)
     cost
 end
 
-function pred_loss(h::SimHeuristic, games, self_probs, costs::Costs)
+function pred_loss(h::SimHeuristic, games, self_probs, costs=Costs(0., 0.))
     pay = 0
     for i in eachindex(games)
         p = decide_probs(h, games[i])
@@ -256,8 +256,8 @@ function pred_loss(h::SimHeuristic, games, self_probs, costs::Costs)
     pay += sum(pred_cost(h) for h in h.h_list)
     (pay/length(games))
 end
-function pred_loss(x::Vector{T} where T <: Real, games, self_probs, costs)
-    pred_loss(SimHeuristic(x), games, self_probs, costs)
+function pred_loss(x::Vector{T} where T <: Real, games, self_probs, costs=Costs(0., 0.))
+    pred_loss(SimHeuristic(x), games, self_probs)
 end
 
 
@@ -361,12 +361,12 @@ function pred_loss(h::SimHeuristic, h2::SimHeuristic, α, games, self_probs)
         p = decide_probs(h, h2, α, games[i])
         pay +=  sum( (p - self_probs[i]).^2)
     end
-    pay += sum(pred_cost(h, costs) for h in h.h_list)
+    pay += sum(pred_cost(h) for h in h.h_list)
     (pay/length(games))
 end
 
 function costs_preds(costs_1, costs_2, games, row_plays, col_plays)
-    s1 = optimize_h(1, games, col_plays, costs_1; init_x=[0.,0.,0.], loss_f = loss_from_dist)
+    s1 = optimize_h(1, games, col_plays, costs_1; loss_f = loss_from_dist)
     s2 = optimize_h(2, games, col_plays, costs_2; loss_f = loss_from_dist)
     function α_fun(α)
          pred_loss(s1, s2, α, games, row_plays)
