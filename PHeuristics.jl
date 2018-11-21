@@ -53,6 +53,10 @@ end
 Base.transpose(g::Game) = Game(transpose(g.col), transpose(g.row))
 Base.size(g::Game) = size(g.row)[1]
 
+function normalize(g::Game)
+    Game(g.row .- mean(g.row), g.col .- mean(g.col))
+end
+
 Base.show(io::IO, g::Game) = begin
     for i in 1:size(g)
         for j in 1:size(g)
@@ -282,6 +286,7 @@ function pred_likelihood(h::SimHeuristic, games, self_probs, costs::Costs)
     like += sum(pred_cost(h) for h in h.h_list)
     (-like/length(games))
 end
+
 function pred_likelihood(x::Vector{T} where T <: Real, games, self_probs, costs)
     pred_likelihood(SimHeuristic(x), games, self_probs, costs)
 end
