@@ -15,7 +15,9 @@ function softmax(x)
     ex
 end
 
-#%% ==================== Games ==================== %%#
+sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
+
+# %% ==================== Games ====================
 
 function sample_cell(ρ; max=9.5, min=-0.5, µ=5, σ=5)
     if ρ < 1 && ρ > -1
@@ -72,14 +74,11 @@ end
 Game(3, 0.)
 
 
-#%% ==================== Abstract Heuristic ====================
+# %% ==================== Abstract Heuristic ====================
 abstract type Heuristic end
 
-function play_distribution(h::Heuristic, g::Game)
-    error("Unimplemented")
-end
 
-function cost(h::Heuristic)
+function play_distribution(h::Heuristic, g::Game)
     error("Unimplemented")
 end
 
@@ -103,8 +102,18 @@ function expected_payoff(h::Heuristic, opponent::Heuristic, g::Game)
     sum(p_outcome .* g.row)
 end
 
+struct Costs
+    α::Float64
+    λ::Float64
+end
 
-#%% ==================== RowHeuristic ====================
+function cost(h::Heuristic, c::Costs)
+    error("Unimplemented")
+end
+(c::Costs)(h::Heuristic) = cost(h, c)
+
+
+# %% ==================== RowHeuristic ====================
 
 mutable struct RowHeuristic <: Heuristic
     α::Real  # we might get a performance boost by using a parametric typem
@@ -127,17 +136,26 @@ function play_distribution(h::RowHeuristic, g::Game)
     softmax(h.λ * row_values(h, g))
 end
 
-#%% ==================== SimHeuristic ====================
+function cost(h::RowHeuristic, c::Costs)
+    (abs(h.λ) * c.λ +
+     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+     (h.α) ^2 * 0.1 +  # TODO: these are basically regularizers: do they need to be so high?
+     (h.γ) ^2 * 0.1)
+end
+
+# @assert Costs(1., 1.)(RowHeuristic(1, 1, 1)) == 1.66211715726001
+
+# %% ==================== SimHeuristic ====================
 mutable struct SimHeuristic <: Heuristic
     h_list::Vector{Heuristic}
     level::Int64
 end
 
-
-#%% ==================== CacheHeuristic ====================
+# %% ==================== CacheHeuristic ====================
 struct CacheHeuristic <: Heuristic
     cache::Dict{Game, Vector{Float64}}
 end
+
 
 struct MetaHeuristic <: Heuristic
 end
