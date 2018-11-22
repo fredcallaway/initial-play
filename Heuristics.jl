@@ -15,7 +15,7 @@ function softmax(x)
     ex
 end
 
-sigmoid(x) = (1. ./ (1. .+ exp.(-x)))
+sigmoid(x) = (1. / (1. + exp(-x)))
 
 # %% ==================== Games ====================
 
@@ -75,6 +75,7 @@ Game(3, 0.)
 
 
 # %% ==================== Abstract Heuristic ====================
+
 abstract type Heuristic end
 
 
@@ -145,13 +146,44 @@ end
 
 # @assert Costs(1., 1.)(RowHeuristic(1, 1, 1)) == 1.66211715726001
 
+
 # %% ==================== SimHeuristic ====================
+
 mutable struct SimHeuristic <: Heuristic
     h_list::Vector{Heuristic}
     level::Int64
 end
+SimHeuristic(hs::Vector) = SimHeuristic(hs, length(hs))
+
+function play_distribution(s::SimHeuristic, g::Game)
+    self_g = deepcopy(g)
+    opp_g = deepcopy(transpose(g))
+    probs = zeros(size(self_g))
+    for i in 1:s.level
+        if i == s.level
+            probs = play_distribution(s.h_list[i], self_g)
+        elseif (s.level - i) % 2 == 1
+            opp_pred = play_distribution(s.h_list[i], opp_g)
+            self_g.row .*= (size(game) .* opp_pred')
+        else
+            self_pred = play_distribution(s.h_list[i], self_g)
+            opp_g.row .*= (size(game) .* self_pred')
+        end
+    end
+    return probs
+end
+
+function cost(s::SimHeuristic, c::Costs)
+    sum(map(c, s.h_list))
+end
+
+# FIXME this doesn't work for some reason...
+game = Game(2, 0.)
+sh = SimHeuristic([RowHeuristic(0, 0, 10), RowHeuristic(0, 0, 10)])
+cost(sh)
 
 # %% ==================== CacheHeuristic ====================
+
 struct CacheHeuristic <: Heuristic
     cache::Dict{Game, Vector{Float64}}
 end
