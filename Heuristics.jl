@@ -212,7 +212,7 @@ end
 # Works for me!
 game = Game(2, 0.)
 sh = SimHeuristic([RowHeuristic(0, 0, 10), RowHeuristic(0, 0, 10)])
-cost(sh, Costs(;α=0.01, γ=-0.1, λ=2.))
+cost(sh, Costs(;α=0.01, γ=-0.01, λ=0.1))
 
 # %% ==================== CacheHeuristic ====================
 
@@ -220,9 +220,16 @@ struct CacheHeuristic <: Heuristic
     cache::Dict{Game, Vector{Float64}}
 end
 
+function CacheHeuristic(games::Vector{Game}, plays::Vector{Vector{Float64}})
+    cache = Dict()
+    for (game, play) in zip(games, plays)
+        cache[game] = play
+    end
+    CacheHeuristic(cache)
+end
 
 function play_distribution(h::CacheHeuristic, g::Game)
-    h.cache[game]
+    h.cache[g]
 end
 
 function cost(h::CacheHeuristic, cost::Costs)
@@ -246,6 +253,48 @@ function perf(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
     return (payoff/length(games) - costs(h))
 end
 
+pay = 0
+for i in eachindex(games)
+    p = decide_probs(h, h2, α, games[i])
+    pay +=  sum( (p - self_probs[i]).^2)
+end
+pay += sum(pred_cost(h) for h in h.h_list)
+(pay/length(games))
+
+function mean_square(x, y)
+    sum((x - y).^2)
+end
+
+function likelihood(x,y)
+    l = 0
+    for (x_el, y_el) in zip(x,y)
+        l += y_el*log(x_el)
+    end
+    -l
+end
+
+function prediction_loss(h::Heuristic, games::Vector{Game}, actual::Heuristic; loss_f = mean_square)
+    loss = 0
+    for game in games
+        pred_p = play_distribution(h, game)
+        actual_p = play_distribution(actual, game)
+        loss += loss_f(pred_p, actual_p)
+    end
+    loss/length(games)
+end
+
+function fit_h(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f=mean_square)
+    if init_x == nothing
+        init_x = ones(size(h))*0.4
+    end
+    function loss_wrap(x)
+        set_parameters!(h, x)
+        prediction_loss(h, games, actual; loss_f=loss_f)
+    end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(), Optim.Options(time_limit=60); autodiff = :forward))
+    set_parameters!(h, x)
+    h
+end
 
 function optimize_h(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; init_x=nothing)
     if init_x == nothing
@@ -270,3 +319,18 @@ costs = Costs(;α=0.05, λ=0.01)
 optimize_h(h, games, opp_h, costs)
 perf(h, games, opp_h, costs)
 perf(opt_h, games, opp_h, costs)
+
+
+
+games = [normalize(Game(3, -0.5)) for i in 1:100]
+plays = [play_distribution(opp_h, game) for game in games]
+ch = CacheHeuristic(games, plays)
+
+
+prediction_loss(h, games, ch; loss_f = likelihood)
+prediction_loss(h, games, ch)
+h = RowHeuristic(0., 0., 0.)
+h = fit_h(h, games, ch; loss_f = likeihood)
+h
+
+opp_h
