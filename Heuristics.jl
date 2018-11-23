@@ -172,9 +172,6 @@ mutable struct SimHeuristic <: Heuristic
 end
 SimHeuristic(hs::Vector) = SimHeuristic(hs, length(hs))
 
-s = SimHeuristic([RowHeuristic(1., 2., 3.), RowHeuristic(4., 5., 6.)])
-
-
 function get_parameters(s::SimHeuristic)
     x_vec = [x for h in s.h_list for x in get_parameters(h)]
 end
@@ -243,6 +240,31 @@ end
 # - cost of deviating from prior for a specific game
 # - optimize prior for an environment (list of games)
 
+# %% ==================== CellHeuristic ====================
+
+mutable struct CellHeuristic <: Heuristic
+    α::Real  # we might get a performance boost by using a parametric typem
+    λ::Real
+end
+
+function play_distribution(h::CellHeuristic, g::Game)
+    cell_values = zeros(Real, size(g), size(g))
+    for i in 1:size(g), j in 1:size(g)
+        r = @view g.row[i,j]
+        c = @view g.col[i,j]
+        cell_values[i,j] = r / (1 + exp(-h.α * c))
+    end
+    cell_probs = softmax(cell_values .* h.λ)
+    [+(cell_probs[i,:]...) for i in 1:size(g)]
+end
+
+function cost(h::CellHeuristic, c::Costs)
+    (abs(h.λ) * c.λ +
+     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+     (h.α) ^2 * 0.0001)
+end
+
+
 # %% ==================== Optimize_Heuristic ====================
 
 function perf(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
@@ -252,14 +274,6 @@ function perf(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
     end
     return (payoff/length(games) - costs(h))
 end
-
-pay = 0
-for i in eachindex(games)
-    p = decide_probs(h, h2, α, games[i])
-    pay +=  sum( (p - self_probs[i]).^2)
-end
-pay += sum(pred_cost(h) for h in h.h_list)
-(pay/length(games))
 
 function mean_square(x, y)
     sum((x - y).^2)
@@ -310,27 +324,37 @@ function optimize_h(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; 
 end
 
 
-h = SimHeuristic([RowHeuristic(0., 0., 0.), RowHeuristic(0., 0., 0.)])
+# function opt_cost(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; loss_f = mean_square)
+
+
+
+sh = SimHeuristic([RowHeuristic(0., 0., 0.), RowHeuristic(0., 0., 0.)])
+rh = RowHeuristic(0.,0.,0.)
+ch = CellHeuristic(0.,0.)
 opp_h = RowHeuristic(0., 0., 5.)
 opt_h = SimHeuristic([opp_h, RowHeuristic(0., 0., 10.)])
 games = [normalize(Game(3, -0.5)) for i in 1:1000]
 costs = Costs(;α=0.05, λ=0.01)
 
-optimize_h(h, games, opp_h, costs)
-perf(h, games, opp_h, costs)
+optimize_h(sh, games, opp_h, costs)
+optimize_h(rh, games, opp_h, costs)
+optimize_h(ch, games, opp_h, costs)
+perf(sh, games, opp_h, costs)
+perf(rh, games, opp_h, costs)
+perf(ch, games, opp_h, costs)
 perf(opt_h, games, opp_h, costs)
 
 
 
 games = [normalize(Game(3, -0.5)) for i in 1:100]
 plays = [play_distribution(opp_h, game) for game in games]
-ch = CacheHeuristic(games, plays)
+cache_h = CacheHeuristic(games, plays)
 
 
-prediction_loss(h, games, ch; loss_f = likelihood)
-prediction_loss(h, games, ch)
+prediction_loss(ch, games, cache_h; loss_f = likelihood)
+prediction_loss(rh, games, ch)
 h = RowHeuristic(0., 0., 0.)
-h = fit_h(h, games, ch; loss_f = likeihood)
-h
+ch = fit_h(ch, games, cache_h; loss_f = likelihood)
+
 
 opp_h
