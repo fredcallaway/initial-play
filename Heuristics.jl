@@ -16,6 +16,12 @@ function softmax(x)
     ex
 end
 
+function weighted_softmax(priors, vals)
+    ex = priors .* exp.(vals)
+    ex ./= sum(ex)
+    ex
+end
+
 sigmoid(x) = (1. / (1. + exp(-x)))
 
 # %% ==================== Games ====================
@@ -112,6 +118,8 @@ mutable struct Costs
     α::Float64
     γ::Float64
     λ::Float64
+    row::Float64
+    level::Float64
 end
 
 ## By using a mutable struct and this constructor we can initialize
@@ -213,7 +221,7 @@ cost(sh, Costs(;α=0.01, γ=-0.01, λ=0.1))
 
 # %% ==================== CacheHeuristic ====================
 
-struct CacheHeuristic <: Heuristic
+mutable struct CacheHeuristic <: Heuristic
     cache::Dict{Game, Vector{Float64}}
 end
 
@@ -233,12 +241,6 @@ function cost(h::CacheHeuristic, cost::Costs)
     0.
 end
 
-
-struct MetaHeuristic <: Heuristic
-end
-# TODO: prior distribution on Heuristic weights
-# - cost of deviating from prior for a specific game
-# - optimize prior for an environment (list of games)
 
 # %% ==================== CellHeuristic ====================
 
@@ -264,6 +266,58 @@ function cost(h::CellHeuristic, c::Costs)
      (h.α) ^2 * 0.0001)
 end
 
+# %% ==================== MetaHeuristic ====================
+
+
+mutable struct MetaHeuristic <: Heuristic
+    h_list::Vector{Heuristic}
+    prior::Vector{T} where T <: Real
+    m_λ::Real
+end
+
+function h_distribution(mh::MetaHeuristic, g::Game, opp_h::Heuristic, costs::Costs)
+    h_values = map(h -> expected_payoff(h, opp_h, game) - costs(h), mh.h_list)
+    softmax((mh.prior .+ h_values) ./ mh.m_λ)
+end
+
+function play_distribution(mh::MetaHeuristic, g::Game, opp_h::Heuristic, costs::Costs)
+    h_dist = h_distribution(mh, g, opp_h, costs)
+    play = zeros(Real, size(g))
+    for i in 1:length(h_dist)
+        play += h_dist[i] * play_distribution(mh.h_list[i], g)
+    end
+    play
+end
+
+
+function get_parameters(mh::MetaHeuristic)
+    res = deepcopy(mh.prior)
+    x_vec = [x for h in mh.h_list for x in get_parameters(h)]
+    push!(res, x_vec...)
+    res
+end
+
+function set_parameters!(mh::MetaHeuristic, x::Vector{T} where T <: Real)
+    setfield!(mh, :prior, x[1:length(mh.prior)])
+    params = [(h, field) for h in mh.h_list for field in fieldnames(typeof(h))]
+    for ((h, field), x) in zip(params, x[(length(mh.prior) + 1):end])
+        setfield!(h, field, x)
+    end
+end
+
+function expected_payoff(h::MetaHeuristic, opponent::Heuristic, g::Game, costs::Costs)
+    p = play_distribution(h, g, opp_h, costs)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
+# TODO: prior distribution on Heuristic weights
+# - cost of deviating from prior for a specific game, kl_c * Kullback-Leibler divergence
+#   this gives decision weigths as in the Rational Attention model of (Matějka, McKay 2015)
+#   either we use priors as in (13), or we calculate the average payoffs as in (1).
+# - optimize prior for an environment (list of games)
+
 
 # %% ==================== Optimize_Heuristic ====================
 
@@ -274,6 +328,16 @@ function perf(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
     end
     return (payoff/length(games) - costs(h))
 end
+
+function perf(mh::MetaHeuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
+    payoff = 0
+    for game in games
+        cost = sum(h_distribution(mh, game, opp_h, costs) .* costs.(mh.h_list))
+        payoff += expected_payoff(mh, opp_h, game, costs) - cost
+    end
+    return payoff/length(games)
+end
+
 
 function mean_square(x, y)
     sum((x - y).^2)
@@ -327,6 +391,7 @@ end
 # function opt_cost(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; loss_f = mean_square)
 
 
+mh = MetaHeuristic([RowHeuristic(0.3, -0.2, 2.), CellHeuristic(0.6, 3.)], [0.5, 0.5], 0.5)
 
 sh = SimHeuristic([RowHeuristic(0., 0., 0.), RowHeuristic(0., 0., 0.)])
 rh = RowHeuristic(0.,0.,0.)
@@ -352,9 +417,27 @@ cache_h = CacheHeuristic(games, plays)
 
 
 prediction_loss(ch, games, cache_h; loss_f = likelihood)
-prediction_loss(rh, games, ch)
+prediction_loss(ch, games, cache_h)
 h = RowHeuristic(0., 0., 0.)
-ch = fit_h(ch, games, cache_h; loss_f = likelihood)
+ch = fit_h(ch, games, cache_h; loss_f = mean_square)
 
 
 opp_h
+
+get_parameters(mh)
+set_parameters!(mh, [0.3, 0.7, 0.1, 0.2, 0.3, 0.4, 0.5])
+
+
+opp_h = RowHeuristic(0., 0., 5.)
+games = [normalize(Game(3, -0.5)) for i in 1:100]
+costs = Costs(;α=0.05, λ=0.01)
+
+
+play_distribution(mh::MetaHeuristic, games[1], opp_h, costs)
+
+game = games[1]
+h_values = map(h -> expected_payoff(h, opp_h, game) - costs(h), mh.h_list)
+
+
+perf(mh, games, opp_h, costs)
+perf(mh.h_list[2], games, opp_h, costs)
