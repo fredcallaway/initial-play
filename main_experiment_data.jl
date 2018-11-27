@@ -1,6 +1,6 @@
 using Distributed
 using Plots
-import StatsBase: sample
+import StatsBase: sample, std
 using JSON
 import Base: ==, hash
 
@@ -115,7 +115,6 @@ for x in costs_perf[1:30]
     println(mean(h_dists))
 end
 
-Sys.CPU_THREADS
 
 #%% Train and test sets
 n_train = 100
@@ -130,9 +129,9 @@ all_mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), RowCellHeurist
 no_α_mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0.])
 # mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), CellHeuristic(0.6, 1.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0.])
 no_αγ_mh = MetaHeuristic([RowMean(2.), RandomHeuristic(), SimHeuristic([RowMean(1.), RowMean(2.)])], [0., 0., 0.])
-costs_perf_all = fit_cost_opt_h(all_mh, train_games, actual_h, opp_h, 2*64)
-costs_perf_nα = fit_cost_opt_h(no_α_mh, train_games, actual_h, opp_h, 2*64)
-costs_perf_nαγ = fit_cost_opt_h(no_αγ_mh, train_games, actual_h, opp_h, 2*64)
+costs_perf_all = fit_cost_opt_h(all_mh, train_games, actual_h, opp_h, 1*64)
+costs_perf_nα = fit_cost_opt_h(no_α_mh, train_games, actual_h, opp_h, 1*64)
+costs_perf_nαγ = fit_cost_opt_h(no_αγ_mh, train_games, actual_h, opp_h, 1*64)
 
 
 for perfs in [costs_perf_all, costs_perf_nα, costs_perf_nαγ]
@@ -145,4 +144,11 @@ for perfs in [costs_perf_all, costs_perf_nα, costs_perf_nαγ]
     println(prediction_loss(best_h, test_games, actual_h, opp_h, best_costs))
     h_dists= [h_distribution(best_h, game, opp_h, best_costs) for game in exp_games]
     println(mean(h_dists))
+    println(std_hdist(best_h, exp_games, opp_h, best_costs))
+end
+
+function std_hdist(h, games, opp_h, best_costs)
+    stds =  map(1:length(h.prior)) do i
+        std([h_distribution(best_h, game, opp_h, best_costs)[i] for game in exp_games])
+    end
 end

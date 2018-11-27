@@ -172,8 +172,8 @@ end
 
 function cost(h::RowCellHeuristic, c::Costs)
     (abs(h.λ) * c.λ +
-     # 2 * (sigmoid((h.α)^2) - 0.5) * c.α +
-     c.α +
+     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+     # c.α +
      (h.α) ^2 * 0.01 +  # TODO: these are basically regularizers: do they need to be so high?
      (h.γ) ^2 * 0.01 +
      c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
@@ -335,8 +335,8 @@ end
 
 function cost(h::CellHeuristic, c::Costs)
     (abs(h.λ) * c.λ +
-     # 2 * (sigmoid((h.α)^2) - 0.5) * c.α +
-     c.α +
+     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+     # c.α +
      (h.α) ^2 * 0.01)
 end
 
