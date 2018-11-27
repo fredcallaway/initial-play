@@ -1,14 +1,16 @@
 using Distributed
-using LatinHypercubeSampling
 using Plots
 import StatsBase: sample
 using JSON
 import Base: ==, hash
 
+include("Heuristics.jl")
+
 if length(workers()) == 1
     addprocs(Sys.CPU_THREADS)
     # addprocs(8)
 end
+
 # include("PHeuristics.jl")
 
 # Load list with experiment names:
@@ -20,267 +22,127 @@ game_names = open("data/game_names_list.json") do f
     JSON.parse(read(f, String))
 end
 
-data_sets = unique(data_name_list)
 
-
-# %%
-
-
-@everywhere begin
-    include("Heuristics.jl")
-    ρ = 0.8
-    game_size = 3
-    n_games = 100
-    # n_inits = 8
-    n_inits = Sys.CPU_THREADS
-    costs = Costs(; α=0.1, λ=0.1, row=0.2, level=0.1, m_λ=0.4)
-end
 
 # Loading data
 
-exp_games = convert(Vector{Game}, games_from_json("data/games.json"))
+exp_games = normalize.(convert(Vector{Game}, games_from_json("data/games.json")))
 exp_row_plays = plays_vec_from_json("data/rows_played.json")
 exp_col_plays = plays_vec_from_json("data/cols_played.json")
 
+opp_h = CacheHeuristic(transpose.(exp_games), exp_col_plays)
+actual_h = CacheHeuristic(exp_games, exp_row_plays)
+good_costs= Costs(0.47, 0.04, 0.42, 0.15, 2.4)
 
-# %% Setting idx so train and set are the same for all optimizations
-
-n_train = 140
-train_idxs = sample(1:length(exp_games), n_train; replace=false)
-test_idxs = setdiff(1:length(exp_games), train_idxs)
-sort!(train_idxs)
-sort!(test_idxs)
-
-# %% Optimal play against actual data
+# %% Sharing data to all kernels
+@everywhere begin
+    include("Heuristics.jl")
+end
 
 @everywhere begin
     exp_games = $exp_games
     exp_col_plays = $exp_col_plays
     exp_row_plays = $exp_row_plays
-    train_idxs = $train_idxs
-    test_idxs = $test_idxs
-    train_games = $exp_games[train_idxs]
-    train_opp_plays = $exp_col_plays[train_idxs]
-    test_games = $exp_games[test_idxs]
-    test_opp_plays = $exp_col_plays[test_idxs]
+    opp_h = CacheHeuristic(transpose.(exp_games), exp_col_plays)
+    actual_h = CacheHeuristic(exp_games, exp_row_plays)
+    good_costs= Costs(0.47, 0.04, 0.42, 0.15, 2.4)
 end
 
-# %% Finding best predicting quantal level-k models.
-function PQLK_pred(game::Game; λ=1.03, τ=0.5)
-    level_0 = SimHeuristic([0.0,0.0,0.0])
-    level_1 = SimHeuristic([0.0,0.0,λ])
-    level_2 = SimHeuristic([0.0,0.0,λ, 0.0, 0.0, λ])
-    π_dist = Distributions.Poisson(τ)
-    p_vals = [Distributions.pdf(π_dist, i) for i in 0:2]
-    p_vals ./ sum(p_vals)
-    l0_pred = decide_probs(level_0, game)
-    l1_pred = decide_probs(level_1, game)
-    l2_pred = decide_probs(level_2, game)
-    pred = l0_pred*p_vals[1] + l1_pred*p_vals[2] + l2_pred*p_vals[3]
-end
+#############################################################
+# %% Finding best predicting quantal level-k  and QCH models.
+############################################################
 
-function QLK_pred(game::Game; λ=2.3, α_0=0.07, α_1=0.64)
-    level_0 = SimHeuristic([0.0,0.0,0.0])
-    level_1 = SimHeuristic([0.0,0.0,λ])
-    level_2 = SimHeuristic([0.0,0.0,λ, 0.0, 0.0, λ])
-    α_2 = 1 - α_0 - α_1
-    l0_pred = decide_probs(level_0, game)
-    l1_pred = decide_probs(level_1, game)
-    l2_pred = decide_probs(level_2, game)
-    pred = l0_pred*α_0 + l1_pred*α_1 + l2_pred*α_2
-end
+qlk_h = QLK(0.07, 0.64, 2.3)
+best_fit_qlk = fit_h!(qlk_h, exp_games, actual_h)
+prediction_loss(qlk_h, exp_games, actual_h)
 
-function pred_loss(behavior_fun::Function, games, self_probs)
-    pay = 0
-    for i in eachindex(games)
-        p = behavior_fun(games[i])
-        pay +=  sum( (p - self_probs[i]).^2)
-    end
-    pay/length(games)
-end
+qch_h = QCH(0.07, 0.64, 2.3)
+best_fit_qch = fit_h!(qch_h, exp_games, actual_h)
+prediction_loss(qch_h, exp_games, actual_h)
 
-games = exp_games
-row_plays = exp_row_plays
-function wrap_pqlk(params)
-    f = x -> PQLK_pred(x,;λ=params[1], τ=params[2])
-    loss = pred_loss(f, games, row_plays)
-end
-wrap_pqlk([0.5, 1.03])
+l1_h = RowHeuristic(-0.3, 2.)
+best_fit_l1 = fit_h!(l1_h, exp_games, actual_h)
+prediction_loss(l1_h, exp_games, actual_h)
+opt_l1 = optimize_h!(l1_h, exp_games, opp_h, good_costs)
+prediction_loss(opt_l1, exp_games, actual_h)
 
-function wrap_qlk(params)
-    f = x -> QLK_pred(x,;λ=params[1], α_0 =params[2], α_1=params[3])
-    loss = pred_loss(f, games, row_plays)
-end
 
-res = Optim.minimizer(optimize(wrap_qlk, [0.3, 0.3, 0.3], BFGS(), Optim.Options(time_limit=60)))
-wrap_qlk(res)
-
-res
 ####################################################
 # %% Finding optimal costs and share 1 vs 2 players
 ###################################################
-train_row_plays = exp_row_plays[train_idxs]
-train_col_plays = exp_col_plays[train_idxs]
-train_games = exp_games[train_idxs]
-opp_h = CacheHeuristic(transpose.(train_games), train_col_plays)
-actual_h = CacheHeuristic(train_games, train_row_plays)
-# opp_h = RowHeuristic(0.4, -0.1, 2.)
-mh = MetaHeuristic([RowHeuristic(0.3, -0.2, 2.), CellHeuristic(0.6, 3.), SimHeuristic([RowHeuristic(0.3, -0.2, 2.), RowHeuristic(0.3, -0.2, 2.)])], [0.3, 0.3, 0.4])
-
-@everywhere begin
-    train_games = $train_games
-    train_row_plays = $train_row_plays
-    train_col_plays = $train_col_plays
-    opp_h = CacheHeuristic(transpose.(train_games), train_col_plays)
-    actual_h = CacheHeuristic(train_games, train_row_plays)
-    # opp_h = $opp_h
-    # actual_h = $actual_h
-end
-
-
-costs_perf = map(1:2) do x
-    try
-        costs = rand_costs([0.05, 0.08, 0.04, 0.05, 1.5], [0.05, 0.08, 0.04, 0.05, 1.5])
-        mh = MetaHeuristic([RowHeuristic(0.3, -0.2, 2.), CellHeuristic(0.6, 3.), SimHeuristic([RowHeuristic(0.3, -0.2, 2.), RowHeuristic(0.3, -0.2, 2.)])], [0.3, 0.3, 0.4])
-        opt_mh = optimize_h!(mh, train_games, opp_h, costs)
-        # println(play_distribution(train_games, actual_h))
-        res = prediction_loss(opt_mh, train_games, actual_h, opp_h, costs)
-        println((res, costs, opt_mh))
-        return (res, costs, opt_mh)
-    catch err
-        println(err)
-    end
-end
-
-
-function opt_cost_datasets(train_data_sets)
-    train_idx = filter(i -> data_name_list[i] in train_data_sets, 1:length(data_name_list))
-    train_games = exp_games[train_idx]
-    train_row_plays = exp_row_plays[train_idx]
-    train_col_plays = exp_col_plays[train_idx]
-
-    opp_h = CacheHeuristic(train_games, train_col_plays)
-    actual_h = CacheHeuristic(train_games, train_row_plays)
-
+function fit_cost_opt_h(init_mh::MetaHeuristic, games, acutal_h, opp_h, n=64)
     @everywhere begin
-        train_games = $train_games
-        train_row_plays = $train_row_plays
-        train_col_plays = $train_col_plays
+        games = $games
+        actual_h = $actual_h
+        opp_h = $opp_h
+        init_mh = deepcopy($init_mh)
     end
 
-    costs = rand_costs(0.01, 0.2, 0.01, 0.4)
-    res = costs_preds(costs, train_games, train_row_plays, train_col_plays)
-    println(res)
-
-    costs_perf = pmap(1:1000) do x
+    costs_perf = pmap(1:n) do x
         try
-            costs = rand_costs(0.01, 0.2, 0.01, 0.4)
-            res = costs_preds(costs, train_games, train_row_plays, train_col_plays)
-            println(res)
-            if res != nothing
-                return (res[1], costs, res[2:4]...)
-            end
+            costs = rand_costs([0.05, 0.04, 0.05, 0.05, 1.], [1., 0.5, 0.7, 0.7, 10.])
+            # costs = Costs(0.0383713, 0.408536, 0.0841975, 0.498675, 1.98782)
+            # costs = Costs(0.02, 0.13, 0.001, 1.5, 10.)
+            mh = deepcopy(init_mh)
+            opt_mh = optimize_h!(mh, games, opp_h, costs; init_x = get_parameters(init_mh))
+            # opt_mh = fit_h!(mh, games, actual_h, opp_h, costs; init_x = get_parameters(init_mh))
+            opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
+            # opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
+            res = prediction_loss(opt_mh, games, actual_h, opp_h, costs)
+            return (res, costs, opt_mh)
         catch err
             println(err)
         end
     end
     costs_perf = filter(x -> x !== nothing, costs_perf)
-    println(costs_perf)
     sort!(costs_perf, by= x -> x[1], rev=false)
-    costs_perf[1]
-end
-
-opt_combo = opt_cost_datasets(data_sets)
-
-
-### Looking at optimal costs for different data_sets
-opts = map(data_sets) do x
-    opt_cost_datasets([x])
+    costs_perf
 end
 
 
+mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), RowCellHeuristic(0.3, -0.2, 1.5), CellHeuristic(0.6, 1.), SimHeuristic([RowCellHeuristic(0.3, -0.2, 2.), RowCellHeuristic(0.3, -0.2, 2.)]), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0.])
+mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0.])
+# mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), CellHeuristic(0.6, 1.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0.])
+mh = MetaHeuristic([RowMean(2.), RandomHeuristic(), SimHeuristic([RowMean(1.), RowMean(2.)])], [0., 0., 0.])
+costs_perf = fit_cost_opt_h(mh, exp_games, actual_h, opp_h, 5*64)
 
-#%% Code for inspecting and comparing the different predictions
-opt_s = deepcopy(opt_res1[1][1])
-msd_s = deepcopy(msd_res[1][1])
-ML_s = deepcopy(ML_res[1][1])
-opt_s1 = opt_combo[4]
-opt_s2 = opt_combo[5]
-opt_α = opt_combo[3]
-# s.h_list[1].γ = 1.
-# # s.h_list[1].α = 2.
-# s.h_list[1].λ = 5.
-pred_loss(opt_s, exp_games, exp_row_plays)
-pred_loss(opt_s1, opt_s2, opt_α, exp_games, exp_row_plays)
+costs_perf
+[h_distribution(costs_perf[1][3], game, opp_h, costs_perf[1][2]) for game in exp_games]
 
-## See what indices pertain to a certain data set
-idx_to_look_at = filter(i -> data_name_list[i] == data_sets[6], 1:length(data_name_list))
 
-i = 80
-
-println("Game: ", game_names[i])
-println(exp_games[i])
-println("MSD :", decide_probs(msd_s, exp_games[i]))
-println("ML :", decide_probs(ML_s, exp_games[i]))
-println("OPT :", decide_probs(opt_s, exp_games[i]))
-println("PQLK: ", QLK_pred(exp_games[i]))
-println("Opt 2 types: ", decide_probs(opt_s1, opt_s2, opt_α, exp_games[i]))
-println("Actual: ", exp_row_plays[i])
-
-### Compare performance of opt_comb over data_sets
-println()
-for data_set in data_sets
-    idx = filter(i -> data_name_list[i] == data_set, 1:length(data_name_list))
-    # println(idx)
-    # println(pred_loss(opt_s1, opt_s2, opt_α, exp_games[idx], exp_row_plays[idx]))
-    println("Opt_comb for ", data_set, " : ", pred_loss(opt_s1, opt_s2, opt_α, exp_games[idx], exp_row_plays[idx]))
-    println("QLK for ", data_set, ": ", pred_loss(QLK_pred, exp_games[idx], exp_row_plays[idx]))
+for x in costs_perf[1:30]
+    h_dists= [h_distribution(x[3], game, opp_h, x[2]) for game in exp_games]
+    println(mean(h_dists))
 end
 
+Sys.CPU_THREADS
 
-## Look at all predictions for a given data_set
-idx = 7
-idx_to_look_at = filter(i -> data_name_list[i] in data_sets[idx:idx], 1:length(data_name_list))
-for i in idx_to_look_at
-    println("Game: ", game_names[i])
-    println(exp_games[i])
-    println("MSD :", decide_probs(msd_s, exp_games[i]))
-    println("ML :", decide_probs(ML_s, exp_games[i]))
-    println("OPT :", decide_probs(opt_s, exp_games[i]))
-    println("PQLK: ", QLK_pred(exp_games[i]))
-    println("Opt 2 types: ", decide_probs(opt_s1, opt_s2, opt_α, exp_games[i]))
-    println("Actual: ", exp_row_plays[i])
-    println()
+#%% Train and test sets
+n_train = 100
+train_idxs = sample(1:length(exp_games), n_train; replace=false)
+test_idxs = setdiff(1:length(exp_games), train_idxs)
+sort!(train_idxs)
+sort!(test_idxs)
+train_games = exp_games[train_idxs]
+test_games = exp_games[test_idxs]
+
+all_mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), RowCellHeuristic(0.3, -0.2, 1.5), CellHeuristic(0.6, 1.), SimHeuristic([RowCellHeuristic(0.3, -0.2, 2.), RowCellHeuristic(0.3, -0.2, 2.)]), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0.])
+no_α_mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0.])
+# mh = MetaHeuristic([RowHeuristic(-.4, 2.), RandomHeuristic(), CellHeuristic(0.6, 1.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0.])
+no_αγ_mh = MetaHeuristic([RowMean(2.), RandomHeuristic(), SimHeuristic([RowMean(1.), RowMean(2.)])], [0., 0., 0.])
+costs_perf_all = fit_cost_opt_h(all_mh, train_games, actual_h, opp_h, 2*64)
+costs_perf_nα = fit_cost_opt_h(no_α_mh, train_games, actual_h, opp_h, 2*64)
+costs_perf_nαγ = fit_cost_opt_h(no_αγ_mh, train_games, actual_h, opp_h, 2*64)
+
+
+for perfs in [costs_perf_all, costs_perf_nα, costs_perf_nαγ]
+    best_perf = perfs[1][1]
+    best_h = perfs[1][3]
+    best_costs = perfs[1][2]
+    println("Prior: ", best_h.prior)
+    println("Heuristic: ", best_h)
+    println(prediction_loss(best_h, train_games, actual_h, opp_h, best_costs))
+    println(prediction_loss(best_h, test_games, actual_h, opp_h, best_costs))
+    h_dists= [h_distribution(best_h, game, opp_h, best_costs) for game in exp_games]
+    println(mean(h_dists))
 end
-
-
-#%% Do locally optimized heuristics with global cognitive costs, performs bad
-
-
-opt_costs = opts[2][2]
-perf_per_dataset = map(data_sets) do x
-    idx = filter(i -> data_name_list[i] == x, 1:length(data_name_list))
-    res = costs_preds(opt_costs, exp_games[idx], exp_row_plays[idx], exp_col_plays[idx])
-    res
-end
-
-
-### Find globally optimal costs for local optimization of heuristcs
-α = 0.7
-costs_perf = pmap(1:400) do x
-    try
-        costs = rand_costs(0.01, 0.2, 0.01, 0.4)
-        perfs = map(data_sets) do x
-            idx = filter(i -> data_name_list[i] == x, 1:length(data_name_list))
-            res = costs_preds(costs, α, exp_games[idx], exp_row_plays[idx], exp_col_plays[idx])
-            res
-        end
-        res = mean([x[1] for x in perfs])
-        (res, costs)
-    catch err
-        pass
-    end
-end
-
-
-sort!(costs_perf, by= x-> x[1])

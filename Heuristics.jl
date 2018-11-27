@@ -8,8 +8,8 @@ import DataStructures: OrderedDict
 using Optim
 using BenchmarkTools
 import Printf: @printf, @sprintf
+import LineSearches
 # import Base: rand
-
 function softmax(x)
     ex = exp.(x)
     ex ./= sum(ex)
@@ -68,11 +68,13 @@ Base.size(g::Game) = size(g.row)[1]
 ==(g::Game,k::Game) = (g.row == k.row) && (g.col == k.col)
 Base.hash(g::Game) = hash(vcat(g.row, g.col))
 
+
 function normalize(g::Game)
     Game(g.row .- mean(g.row), g.col .- mean(g.col))
 end
 
 Base.show(io::IO, g::Game) = begin
+    # pritnln(g.name)
     for i in 1:size(g)
         for j in 1:size(g)
             # print(Int(g.row[i,j]), ",", Int(g.col[i,j]), "  ")
@@ -144,16 +146,16 @@ end
 (c::Costs)(h::Heuristic) = cost(h, c)
 
 
-# %% ==================== RowHeuristic ====================
+# %% ==================== RowCellHeuristic ====================
 
-mutable struct RowHeuristic <: Heuristic
+mutable struct RowCellHeuristic <: Heuristic
     α::Real  # we might get a performance boost by using a parametric typem
     γ::Real
     λ::Real
 end
 
 
-function row_values(h::RowHeuristic, g::Game)
+function row_values(h::RowCellHeuristic, g::Game)
     map(1:size(g)) do i
         r = @view g.row[i, :]
         c = @view g.col[i, :]
@@ -164,20 +166,84 @@ function row_values(h::RowHeuristic, g::Game)
     end
 end
 
+function play_distribution(h::RowCellHeuristic, g::Game)
+    softmax(h.λ * row_values(h, g))
+end
+
+function cost(h::RowCellHeuristic, c::Costs)
+    (abs(h.λ) * c.λ +
+     # 2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+     c.α +
+     (h.α) ^2 * 0.01 +  # TODO: these are basically regularizers: do they need to be so high?
+     (h.γ) ^2 * 0.01 +
+     c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+end
+
+# @assert Costs(;α=1., λ=1.)(RowHeuristic(1, 1, 1)) == 1.66211715726001
+
+# %% ==================== RowHeuristic ====================
+
+mutable struct RowHeuristic <: Heuristic
+    γ::Real
+    λ::Real
+end
+
+
+function row_values(h::RowHeuristic, g::Game)
+    map(1:size(g)) do i
+        r = @view g.row[i, :]
+        # a = h.α / max(1., (maximum(c) - minimum(c)))  # NOTE: Do we want this?
+        k = h.γ / max(1., (maximum(r) - minimum(r)))
+        v = r' * softmax(k * r)
+    end
+end
+
 function play_distribution(h::RowHeuristic, g::Game)
     softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowHeuristic, c::Costs)
     (abs(h.λ) * c.λ +
-     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
-     (h.α) ^2 * 0.0001 +  # TODO: these are basically regularizers: do they need to be so high?
-     (h.γ) ^2 * 0.0001 +
+     (h.γ) ^2 * 0.01 +
      c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
 end
 
-# @assert Costs(;α=1., λ=1.)(RowHeuristic(1, 1, 1)) == 1.66211715726001
+# %% ==================== RowMean ====================
 
+mutable struct RowMean <: Heuristic
+    λ::Real
+end
+
+function row_values(h::RowMean, g::Game)
+    map(1:size(g)) do i
+        r = @view g.row[i, :]
+        # a = h.α / max(1., (maximum(c) - minimum(c)))  # NOTE: Do we want this?
+        v = mean(r)
+    end
+end
+
+function play_distribution(h::RowMean, g::Game)
+    softmax(h.λ * row_values(h, g))
+end
+
+function cost(h::RowMean, c::Costs)
+    (abs(h.λ) * c.λ +
+     c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+end
+
+# %% ==================== RandomHeuristic ====================
+
+mutable struct RandomHeuristic <: Heuristic
+end
+
+function play_distribution(h::RandomHeuristic, g::Game)
+    ones(size(g))/size(g)
+end
+
+
+function cost(h::RandomHeuristic, c::Costs)
+    0.
+end
 
 # %% ==================== SimHeuristic ====================
 
@@ -223,16 +289,16 @@ end
 # FIXME this doesn't work for some reason...
 # Works for me!
 game = Game(2, 0.)
-sh = SimHeuristic([RowHeuristic(0, 0, 10), RowHeuristic(0, 0, 10)])
+sh = SimHeuristic([RowHeuristic(0, 10), RowHeuristic(0, 10)])
 cost(sh, Costs(;α=0.01, λ=0.1))
 
 # %% ==================== CacheHeuristic ====================
 
 mutable struct CacheHeuristic <: Heuristic
-    cache::Dict{Game, Vector{Float64}}
+    cache::Dict{Game, Vector{T} where T <: Real}
 end
 
-function CacheHeuristic(games::Vector{Game}, plays::Vector{Vector{Float64}})
+function CacheHeuristic(games::Vector{Game}, plays::Vector{Vector{T}} where T <: Real)
     cache = Dict()
     for (game, play) in zip(games, plays)
         cache[game] = play
@@ -269,10 +335,53 @@ end
 
 function cost(h::CellHeuristic, c::Costs)
     (abs(h.λ) * c.λ +
-     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
-     (h.α) ^2 * 0.0001)
+     # 2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+     c.α +
+     (h.α) ^2 * 0.01)
 end
 
+#%%  ==================== QLK Heuristic ====================
+mutable struct QLK <: Heuristic
+    α_0::Real
+    α_1::Real
+    λ::Real
+end
+
+function play_distribution(h::QLK, g::Game)
+    level_0 = ones(Real, size(g))/size(g)
+    level_1 = play_distribution(RowHeuristic(0., h.λ), g)
+    level_2 = play_distribution(SimHeuristic([RowHeuristic(0., h.λ), RowHeuristic(0., h.λ)]), g)
+    α_2 = 1 - h.α_0 - h.α_1
+    return level_0*h.α_0 + level_1*h.α_1 + level_2*α_2
+end
+
+function cost(h::QLK, c::Costs)
+    (abs(h.λ) * c.λ*h.α_1 +
+    2*abs(h.λ) *c.λ*(1 -h.α_1 - h.α_0))
+end
+
+#%%  ==================== QCH Heuristic ====================
+mutable struct QCH <: Heuristic
+    α_0::Real
+    α_1::Real
+    λ::Real
+end
+
+function play_distribution(h::QCH, g::Game)
+    level_0 = ones(Real, size(g))/size(g)
+    level_1 = play_distribution(RowHeuristic(0., h.λ), g)
+    opp_level_1 = play_distribution(RowHeuristic(0., h.λ), transpose(g))
+    opp_play = (level_0*h.α_0 + opp_level_1*h.α_1)/(h.α_0 + h.α_1)
+    opp_h = CacheHeuristic([transpose(g)], [opp_play])
+    level_2 = play_distribution(SimHeuristic([opp_h, RowHeuristic(0., h.λ)]), g)
+    α_2 = 1 - h.α_0 - h.α_1
+    return level_0*h.α_0 + level_1*h.α_1 + level_2*α_2
+end
+
+function cost(h::QCH, c::Costs)
+    (abs(h.λ) * c.λ*h.α_1 +
+    2*abs(h.λ) *c.λ*(1 -h.α_1 - h.α_0))
+end
 # %% ==================== MetaHeuristic ====================
 
 
@@ -298,16 +407,16 @@ end
 
 
 function get_parameters(mh::MetaHeuristic)
-    res = deepcopy(mh.prior)
+    # res = deepcopy(mh.prior)
     x_vec = [x for h in mh.h_list for x in get_parameters(h)]
-    push!(res, x_vec...)
-    res
+    # push!(res, x_vec...)
+    # res
 end
 
-
 function set_parameters!(mh::MetaHeuristic, x::Vector{T} where T <: Real)
-    setfield!(mh, :prior, x[1:length(mh.prior)])
-    idx = length(mh.prior) + 1
+    # setfield!(mh, :prior, x[1:length(mh.prior)])
+    # idx = length(mh.prior) + 1
+    idx = 1
     for h in mh.h_list
         set_parameters!(h, x[idx:(idx+size(h) -1)])
         idx = idx+size(h)
@@ -393,6 +502,19 @@ function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=not
     h
 end
 
+function fit_h!(h::MetaHeuristic, games::Vector{Game}, actual::Heuristic, opp_h, costs; init_x=nothing, loss_f=mean_square)
+    if init_x == nothing
+        init_x = ones(size(h))*0.01
+    end
+    function loss_wrap(x)
+        set_parameters!(h, x)
+        prediction_loss(h, games, actual, opp_h, costs; loss_f=loss_f)
+    end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(), Optim.Options(time_limit=60); autodiff = :forward))
+    set_parameters!(h, x)
+    h
+end
+
 
 function optimize_h!(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; init_x=nothing)
     if init_x == nothing
@@ -403,7 +525,9 @@ function optimize_h!(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs;
         -perf(h, games, opp_h, costs)
     end
     # x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(), Optim.Options(time_limit=60); autodiff = :forward))
-    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(), Optim.Options(time_limit=60); autodiff = :forward))
+    # x = Optim.minimizer(optimize(loss_wrap, init_x, LBFGS(;linesearch = LineSearches.MoreThuente()); autodiff = :forward))
+    # x = Optim.minimizer(optimize(loss_wrap, init_x, Newton(); autodiff = :forward))
     set_parameters!(h, x)
     h
 end
@@ -418,8 +542,8 @@ function games_from_json(file_name)
         games_vec = Game[]
         games_json = JSON.parse(games_json)
         for g in games_json
-                row = [g["row"][j][i] for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
-                col = [g["col"][j][i] for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
+                row = [g["row"][j][i] + rand()*0.0001 for i in 1:length(g["row"][1]), j in 1:length(g["row"])]
+                col = [g["col"][j][i] + rand()*0.0001 for i in 1:length(g["col"][1]), j in 1:length(g["col"])]
                 game = Game(row, col)
                 push!(games_vec, game)
         end
@@ -439,90 +563,23 @@ function rand_costs(mins=[0.01, 0.01, 0.01, 0.01, 0.1], max=[0.2, 0.2, 0.5, 0.5,
     Costs([rand()*(max[i] - mins[i]) + mins[i] for i in 1:5]...)
 end
 
-# function opt_cost(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; loss_f = mean_square)
+function fit_prior!(mh, games, actual_h, opp_h, costs)
+    function wrap(x)
+        mh.prior = x
+        prediction_loss(mh, games, actual_h, opp_h, costs)
+    end
+    res = Optim.minimizer(optimize(wrap, copy(mh.prior), LBFGS(), Optim.Options(time_limit=60); autodiff = :forward))
+    mh.prior = res
+    println(prediction_loss(mh, games, actual_h, opp_h, costs))
+    return mh
+end
 
-#
-# mh = MetaHeuristic([RowHeuristic(0.3, -0.2, 2.), CellHeuristic(0.6, 3.), SimHeuristic([RowHeuristic(0.3, -0.2, 2.), RowHeuristic(0.3, -0.2, 2.)])], [0.3, 0.3, 0.4])
-#
-#
-# mh2 = MetaHeuristic([RowHeuristic(0.3, -0.2, 2.), CellHeuristic(0.6, 3.)], [0.5, 0.5], 0.5)
-#
-# sh = SimHeuristic([RowHeuristic(0., 0., 0.), RowHeuristic(0., 0., 0.)])
-# rh = RowHeuristic(0.,0.,0.)
-# ch = CellHeuristic(0.,0.)
-# opp_h = RowHeuristic(0., 0., 2.)
-# opt_h = SimHeuristic([opp_h, RowHeuristic(0., 0., 10.)])
-# games = [normalize(Game(3, -0.5)) for i in 1:100]
-# push!(games, [normalize(Game(3, 0.8)) for i in 1:100]...)
-# costs = Costs(;α=0.05, λ=0.1, row=0.05, level=0.03, m_λ=0.5)
-# mh = MetaHeuristic([RowHeuristic(0.3, -0.2, 2.), CellHeuristic(0.6, 3.), SimHeuristic([RowHeuristic(0.3, -0.2, 2.), RowHeuristic(0.3, -0.2, 2.)])], [0.3, 0.3, 0.4], 0.3)
-#
-# optimize_h!(mh, games, opp_h, costs)
-# optimize_h!(mh2, games, opp_h, costs)
-# optimize_h!(sh, games, opp_h, costs)
-# optimize_h!(rh, games, opp_h, costs)
-# optimize_h!(ch, games, opp_h, costs)
-# perf(mh, games, opp_h, costs)
-# perf(mh.h_list[1], games, opp_h, costs)
-# perf(rh, games, opp_h, costs)
-# perf(ch, games, opp_h, costs)
-# perf(opt_h, games, opp_h, costs)
-#
-# prediction_loss(mh, games, opt_h, opp_h, costs)
-#
-#
-#
-#
-#
-#
-# games = [normalize(Game(3, -0.5)) for i in 1:100]
-# plays = [play_distribution(opp_h, game) for game in games]
-# cache_h = CacheHeuristic(games, plays)
-#
-#
-# prediction_loss(ch, games, cache_h; loss_f = likelihood)
-# prediction_loss(ch, games, cache_h)
-# h = RowHeuristic(0., 0., 0.)
-# ch = fit_h!(ch, games, cache_h; loss_f = mean_square)
-#
-#
-# opp_h
-#
-# get_parameters(mh)
-# set_parameters!(mh, [0.3, 0.7, 0.1, 0.2, 0.3, 0.4, 0.5, 2., ])
-#
-#
-# opp_h = RowHeuristic(0., 0., 2.)
-# games = [normalize(Game(3, -0.5)) for i in 1:100]
-# costs = Costs(;α=0.05, λ=0.01)
-#
-# play_distribution(mh::MetaHeuristic, games[1], opp_h, costs)
-#
-# game = games[1]
-# h_values = map(h -> expected_payoff(h, opp_h, game) - costs(h), mh.h_list)
-# h_distribution(mh, game, opp_h, costs)
-# play_distribution(mh, game, opp_h, costs)
-# play_distribution(mh.h_list[2], game)
-# expected_payoff(mh, opp_h, game, costs) - costs(mh.h_list[2])
-# expected_payoff(mh.h_list[2], opp_h, game)
-#
-# g = game
-# h_dist = h_distribution(mh, g, opp_h, costs)
-# play = zeros(Real, size(g))
-# play_distribution(mh.h_list[i], g)
-# i = 3
-# play += h_dist[i] * play_distribution(mh.h_list[i], g)
-#
-#
-# perf(mh, games, opp_h, costs)
-#
-# mh.prior = [1/3, 1/3, 1/3]
-# mh.m_λ = 0.01
-#
-# sum(h_distribution(mh, game, opp_h, costs) .* costs.(mh.h_list))
-#
-# h_values = map(h -> expected_payoff(h, opp_h, game) - costs(h), mh.h_list)
-# h_values = map(h -> expected_payoff(h, opp_h, game), mh.h_list)
-#
-# h_distribution(mh, game, opp_h, costs)
-# costs(mh.h_list[1])
+function opt_prior!(mh, games, opp_h, costs)
+    function wrap(x)
+        mh.prior = x
+        -perf(mh, games, opp_h, costs)
+    end
+    res = Optim.minimizer(optimize(wrap, copy(mh.prior), LBFGS(), Optim.Options(time_limit=60); autodiff = :forward))
+    mh.prior = res
+    return mh
+end
