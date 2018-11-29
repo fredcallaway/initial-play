@@ -160,6 +160,7 @@ function row_values(h::RowCellHeuristic, g::Game)
         r = @view g.row[i, :]
         c = @view g.col[i, :]
         # a = h.α / max(1., (maximum(c) - minimum(c)))  # NOTE: Do we want this?
+        # s = @. r / (1 + exp(-h.α * c))
         s = @. r / (1 + exp(-h.α * c))
         k = h.γ / max(1., (maximum(s) - minimum(s)))
         v = s' * softmax(k * s)
@@ -243,6 +244,64 @@ end
 
 function cost(h::RandomHeuristic, c::Costs)
     0.
+end
+
+# %% ==================== JointMax ====================
+
+mutable struct JointMax <: Heuristic
+    λ::Real
+end
+
+function play_distribution(h::JointMax, g::Game)
+    cell_values = zeros(Real, size(g), size(g))
+    for i in 1:size(g), j in 1:size(g)
+        # r = @view g.row[i,j]
+        r = g.row[i,j]
+        # c = @view g.col[i,j]
+        c = g.col[i,j]
+        cell_values[i,j] = min(r,c)
+    end
+    cell_probs = softmax(cell_values .* h.λ)
+    [+(cell_probs[i,:]...) for i in 1:size(g)]
+end
+
+
+function cost(h::JointMax, c::Costs)
+    abs(h.λ)*c.λ + c.α
+end
+
+# %% ==================== Nasheuristic ====================
+function find_pure_nash(g::Game)
+    neqs = []
+    for j in 1:size(g)
+        for i in filter(x -> g.row[x,j] == maximum(g.row[:,j]), 1:size(g))
+            if g.col[i,j] == maximum(g.col[i,:])
+                push!(neqs, (i,j, g.row[i,j]))
+            end
+        end
+    end
+    neqs
+end
+
+mutable struct NashHeuristic <: Heuristic
+    λ::Real
+end
+
+function play_distribution(h::NashHeuristic, g::Game)
+    neqs = find_pure_nash(g)
+    pres = zeros(Real, size(g))
+    if length(neqs) > 0
+        res = softmax([h.λ * x[3] for x in neqs])
+        for i in 1:length(res)
+            pres[neqs[i][1]] += res[i]
+        end
+    end
+    return(pres)
+end
+
+function cost(h::NashHeuristic, c::Costs)
+    # c.nash +c.λ*abs(h.λ)
+    c.nash + 0.001*abs(h.λ)^2
 end
 
 # %% ==================== SimHeuristic ====================
@@ -344,20 +403,25 @@ end
 mutable struct QLK <: Heuristic
     α_0::Real
     α_1::Real
-    λ::Real
+    λ1::Real
+    λ21::Real
+    λ22::Real
 end
+
+QLK(α_0, α_1, λ) = QLK(α_0, α_1, λ,λ, λ)
+QLK(α_0, α_1, λ1, λ21, λ22) = QLK(α_0, α_1, λ, λ, λ)
 
 function play_distribution(h::QLK, g::Game)
     level_0 = ones(Real, size(g))/size(g)
-    level_1 = play_distribution(RowHeuristic(0., h.λ), g)
-    level_2 = play_distribution(SimHeuristic([RowHeuristic(0., h.λ), RowHeuristic(0., h.λ)]), g)
+    level_1 = play_distribution(RowHeuristic(0., h.λ1), g)
+    level_2 = play_distribution(SimHeuristic([RowHeuristic(0., h.λ21), RowHeuristic(0., h.λ22)]), g)
     α_2 = 1 - h.α_0 - h.α_1
     return level_0*h.α_0 + level_1*h.α_1 + level_2*α_2
 end
 
 function cost(h::QLK, c::Costs)
-    (abs(h.λ) * c.λ*h.α_1 +
-    2*abs(h.λ) *c.λ*(1 -h.α_1 - h.α_0))
+    (abs(h.λ1) * c.λ*h.α_1 +
+    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -h.α_1 - h.α_0))
 end
 
 #%%  ==================== QCH Heuristic ====================
@@ -560,7 +624,7 @@ function plays_vec_from_json(file_name)
 end
 
 function rand_costs(mins=[0.01, 0.01, 0.01, 0.01, 0.1], max=[0.2, 0.2, 0.5, 0.5, 1.])
-    Costs([rand()*(max[i] - mins[i]) + mins[i] for i in 1:5]...)
+    Costs([rand()*(max[i] - mins[i]) + mins[i] for i in 1:length(mins)]...)
 end
 
 function fit_prior!(mh, games, actual_h, opp_h, costs)
@@ -570,7 +634,7 @@ function fit_prior!(mh, games, actual_h, opp_h, costs)
     end
     res = Optim.minimizer(optimize(wrap, copy(mh.prior), LBFGS(), Optim.Options(time_limit=60); autodiff = :forward))
     mh.prior = res
-    println(prediction_loss(mh, games, actual_h, opp_h, costs))
+    # println(prediction_loss(mh, games, actual_h, opp_h, costs))
     return mh
 end
 
@@ -583,3 +647,21 @@ function opt_prior!(mh, games, opp_h, costs)
     mh.prior = res
     return mh
 end
+
+
+
+opp_h = RowHeuristic(0, 1.)
+ch = CellHeuristic(-0.35, 1.5)
+ma = JointMax(0.7)
+rh = RowHeuristic(-1.3, 2.)
+
+g = Game(3, 0.)
+
+println("------")
+println(g)
+println(play_distribution(ch, g))
+println(expected_payoff(ch, opp_h, g))
+println(play_distribution(ma, g))
+println(expected_payoff(ma, opp_h, g))
+println(play_distribution(rh, g))
+println(expected_payoff(rh, opp_h, g))
