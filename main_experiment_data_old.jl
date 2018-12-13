@@ -45,7 +45,7 @@ exp_games = games_from_json("data/games.json")
 exp_row_plays = plays_vec_from_json("data/rows_played.json")
 exp_col_plays = plays_vec_from_json("data/cols_played.json")
 
-
+length(unique(exp_games))
 # %% Setting idx so train and set are the same for all optimizations
 
 n_train = 100
@@ -84,7 +84,8 @@ end
 
 opt_res1 = filter(x -> x !== nothing, opt_res1)
 sort!(opt_res1, by= x -> x[2], rev=true)
-
+opt_res1[1][1]
+pred_loss(opt_res1[1][1], exp_games, exp_row_plays)
 
 for (h, trn, tst) in opt_res1
     println("----- ", h, " -----")
