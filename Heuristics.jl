@@ -123,10 +123,10 @@ end
 mutable struct Costs
     α::Float64
     λ::Float64
-    row::Float64
+    # row::Float64
     level::Float64
     m_λ::Float64
-    pure::Float64
+    # pure::Float64
 end
 
 ## By using a mutable struct and this constructor we can initialize
@@ -138,7 +138,6 @@ function Costs(;kwargs...)
     end
     return costs
 end
-Costs(; α=1., λ=2.4)
 
 function cost(h::Heuristic, c::Costs)
     error("Unimplemented")
@@ -171,15 +170,15 @@ end
 function play_distribution(h::RowCellHeuristic, g::Game)
     softmax(h.λ * row_values(h, g))
 end
-
-function cost(h::RowCellHeuristic, c::Costs)
-    (abs(h.λ) * c.λ +
-     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
-     # c.α +
-     (h.α) ^2 * 0.01 +  # TODO: these are basically regularizers: do they need to be so high?
-     (h.γ) ^2 * 0.01 +
-     c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
-end
+#
+# function cost(h::RowCellHeuristic, c::Costs)
+#     (abs(h.λ) * c.λ +
+#      2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+#      # c.α +
+#      (h.α) ^2 * 0.01 +  # TODO: these are basically regularizers: do they need to be so high?
+#      (h.γ) ^2 * 0.01 +
+#      c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+# end
 
 # @assert Costs(;α=1., λ=1.)(RowHeuristic(1, 1, 1)) == 1.66211715726001
 
@@ -205,10 +204,54 @@ function play_distribution(h::RowHeuristic, g::Game)
 end
 
 function cost(h::RowHeuristic, c::Costs)
-    (abs(h.λ) * c.λ +
-     (h.γ) ^2 * 0.01 +
-     c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+    abs(h.λ) *c.λ + (h.γ) ^2 * 0.01
 end
+# function cost(h::RowHeuristic, c::Costs)
+#     (abs(h.λ) * c.λ +
+#      (h.γ) ^2 * 0.01 +
+#      c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+# end
+
+# %% ==================== RowγHeuristic ====================
+
+mutable struct RowγHeuristic <: Heuristic
+    γ::Real
+    λ::Real
+end
+
+
+function row_values(h::RowγHeuristic, g::Game)
+    map(1:size(g)) do i
+        r = @view g.row[i, :]
+        # a = h.α / max(1., (maximum(c) - minimum(c)))  # NOTE: Do we want this?
+        k = h.γ / max(1., (maximum(r) - minimum(r)))
+        v = r' * softmax(k * r)
+    end
+end
+
+function play_distribution(h::RowγHeuristic, g::Game)
+    softmax(h.λ * row_values(h, g))
+end
+
+function cost(h::RowγHeuristic, c::Costs)
+    abs(h.λ) *c.λ
+end
+
+function get_parameters(h::RowγHeuristic)
+    [h.λ]
+end
+
+function set_parameters!(h::RowγHeuristic, x::Vector{T} where T <: Real)
+    h.λ = x[1]
+end
+
+
+# function cost(h::RowHeuristic, c::Costs)
+#     (abs(h.λ) * c.λ +
+#      (h.γ) ^2 * 0.01 +
+#      c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+# end
+
 
 # %% ==================== RowMean ====================
 
@@ -229,8 +272,7 @@ function play_distribution(h::RowMean, g::Game)
 end
 
 function cost(h::RowMean, c::Costs)
-    (abs(h.λ) * c.λ +
-     c.row)   # Answer: Not really, think I was just trying to tinker away an error in the optim.
+    abs(h.λ) * c.λ
 end
 
 
@@ -253,9 +295,8 @@ function play_distribution(h::RowMin, g::Game)
 end
 
 function cost(h::RowMin, c::Costs)
-    (abs(h.λ) * c.λ
+    (abs(h.λ) * c.λ)
      #+  c.row   # Answer: Not really, think I was just trying to tinker away an error in the optim.
-     )
 end
 
 # %% ==================== RowMax ====================
@@ -339,8 +380,11 @@ function play_distribution(h::PureHeuristic, g::Game)
 end
 
 
+# function cost(h::PureHeuristic, c::Costs)
+#     c.pure
+# end
 function cost(h::PureHeuristic, c::Costs)
-    c.pure
+    0.
 end
 
 # %% ==================== MaxHeuristic ====================
@@ -390,8 +434,11 @@ end
 
 
 function cost(h::JointMax, c::Costs)
-    abs(h.λ)*c.λ + c.α
+    abs(h.λ)*c.α
 end
+# function cost(h::JointMax, c::Costs)
+#     abs(h.λ)*c.λ + c.α
+# end
 
 # %% ==================== Nasheuristic ====================
 function find_pure_nash(g::Game)
@@ -472,7 +519,7 @@ end
 # Works for me!
 game = Game(2, 0.)
 sh = SimHeuristic([RowHeuristic(0, 10), RowHeuristic(0, 10)])
-cost(sh, Costs(;α=0.01, λ=0.1))
+cost(sh, Costs(;m_λ=0.01, λ=0.1))
 
 # %% ==================== CacheHeuristic ====================
 
@@ -515,12 +562,12 @@ function play_distribution(h::CellHeuristic, g::Game)
     [+(cell_probs[i,:]...) for i in 1:size(g)]
 end
 
-function cost(h::CellHeuristic, c::Costs)
-    (abs(h.λ) * c.λ +
-     2 * (sigmoid((h.α)^2) - 0.5) * c.α +
-     # c.α +
-     (h.α) ^2 * 0.01)
-end
+# function cost(h::CellHeuristic, c::Costs)
+#     (abs(h.λ) * c.λ +
+#      2 * (sigmoid((h.α)^2) - 0.5) * c.α +
+#      # c.α +
+#      (h.α) ^2 * 0.01)
+# end
 
 #%%  ==================== QLK Heuristic ====================
 mutable struct QLK <: Heuristic
@@ -778,4 +825,21 @@ function opt_prior!(mh, games, opp_h, costs)
     res = Optim.minimizer(optimize(wrap, copy(mh.prior), LBFGS(), Optim.Options(time_limit=60); autodiff = :forward))
     mh.prior = res
     return mh
+end
+
+
+function mean(costs_vec::Vector{Costs})
+    means = []
+    for field in fieldnames(Costs)
+        push!(means, mean([getfield(c, field) for c in costs_vec]))
+    end
+    means
+end
+
+function std(costs_vec::Vector{Costs})
+    stds = []
+    for field in fieldnames(Costs)
+        push!(stds, std([getfield(c, field) for c in costs_vec]))
+    end
+    stds
 end

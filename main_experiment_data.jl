@@ -33,7 +33,8 @@ exp_col_plays = plays_vec_from_json("data/cols_played.json")
 
 opp_h = CacheHeuristic(transpose.(exp_games), exp_col_plays)
 actual_h = CacheHeuristic(exp_games, exp_row_plays)
-good_costs= Costs(0.47, 0.04, 0.42, 0.15, 2.4, 1.)
+# good_costs= Costs(0.47, 0.04, 0.42, 0.15, 2.4, 1.)
+good_costs= Costs(0.07, 0.04, 0.15, 2.4)
 
 # %% Sharing data to all kernels
 @everywhere begin
@@ -46,7 +47,8 @@ end
     exp_row_plays = $exp_row_plays
     opp_h = CacheHeuristic(transpose.(exp_games), exp_col_plays)
     actual_h = CacheHeuristic(exp_games, exp_row_plays)
-    good_costs= Costs(; α=0.47, λ=0.04, row=0.42, level=0.15, m_λ=2.4)
+    # good_costs= Costs(; α=0.47, λ=0.04, row=0.42, level=0.15, m_λ=2.4)
+    good_costs= Costs(;λ=0.04, level=0.15, m_λ=2.4)
 end
 
 
@@ -83,7 +85,10 @@ function fit_cost_opt_h(init_mh::MetaHeuristic, games, acutal_h, opp_h, n=64)
 
     costs_perf = pmap(1:n) do x
         try
-            costs = rand_costs([0.2, 0.03, 0.2, 0.2, 1., 0.1], [0.601, 0.3, 0.601, 0.601, 7., 3.])
+            # costs = rand_costs([0.2, 0.03, 0.2, 0.2, 1., 0.1], [0.601, 0.3, 0.601, 0.601, 7., 3.])
+            # costs = rand_costs([0.02, 0.1, 2.], [0.08, 0.5, 7.,])
+            # costs = rand_costs([0.02, 0.05, 2.], [0.08, 0.4, 7.,])
+            costs = rand_costs([0.03, 0.02, 0.05, 2.], [0.1, 0.1, 0.4, 7.,])
             # costs = Costs(0.0383713, 0.408536, 0.0841975, 0.498675, 1.98782)
             # costs = Costs(0.02, 0.13, 0.001, 1.5, 10.)
             mh = deepcopy(init_mh)
@@ -99,8 +104,8 @@ function fit_cost_opt_h(init_mh::MetaHeuristic, games, acutal_h, opp_h, n=64)
             # end
 
             # opt_mh = fit_h!(mh, games, actual_h, opp_h, costs; init_x = get_parameters(init_mh))
-            opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
-            # opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
+            # opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
+            opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
             res = prediction_loss(opt_mh, games, actual_h, opp_h, costs)
             return (res, costs, opt_mh)
         catch err
@@ -112,24 +117,24 @@ function fit_cost_opt_h(init_mh::MetaHeuristic, games, acutal_h, opp_h, n=64)
     costs_perf
 end
 
-
-filter(x -> data_name_list[x] == "CGW08", 1:142)
-
-println(exp_games[97])
-game_names[97]
-println(exp_col_plays[97])
-println(exp_row_plays[97])
-
-three_games = filter(g -> (size(g) == 3) && (size(transpose(g)) == 3), exp_games)
-mh = MetaHeuristic([PureHeuristic(1), PureHeuristic(2), PureHeuristic(3)], [0. ,0., 0.])
-mh = MetaHeuristic([PureHeuristic(1), PureHeuristic(2), PureHeuristic(3), JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.])
-mh = MetaHeuristic([JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0.])
-# mh = MetaHeuristic([RowHeuristic(-1., 1.5), JointMax(0.7)], [0., 0.])
-length((get_parameters(PureHeuristic(1))))
-mh = optimize_h!(mh, three_games, opp_h, rand_costs(); init_x = get_parameters(mh))
-println("----")
-costs_perf = fit_cost_opt_h(mh, three_games, actual_h, opp_h, 64)
-prediction_loss(costs_perf[1][3], three_games, actual_h, opp_h, costs_perf[1][2])
+#
+# filter(x -> data_name_list[x] == "CGW08", 1:142)
+#
+# println(exp_games[97])
+# game_names[97]
+# println(exp_col_plays[97])
+# println(exp_row_plays[97])
+#
+# three_games = filter(g -> (size(g) == 3) && (size(transpose(g)) == 3), exp_games)
+# mh = MetaHeuristic([PureHeuristic(1), PureHeuristic(2), PureHeuristic(3)], [0. ,0., 0.])
+# mh = MetaHeuristic([PureHeuristic(1), PureHeuristic(2), PureHeuristic(3), JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.])
+# mh = MetaHeuristic([JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0.])
+# # mh = MetaHeuristic([RowHeuristic(-1., 1.5), JointMax(0.7)], [0., 0.])
+# length((get_parameters(PureHeuristic(1))))
+# mh = optimize_h!(mh, three_games, opp_h, rand_costs(); init_x = get_parameters(mh))
+# println("----")
+# costs_perf = fit_cost_opt_h(mh, three_games, actual_h, opp_h, 64)
+# prediction_loss(costs_perf[1][3], three_games, actual_h, opp_h, costs_perf[1][2])
 
 
 
@@ -144,15 +149,25 @@ function std_hdist(h, games, opp_h, best_costs)
     end
 end
 
+function max_hdist(h, games, opp_h, best_costs)
+    stds =  map(1:length(h.prior)) do i
+        maximum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
+    end
+end
+
+function min_hdist(h, games, opp_h, best_costs)
+    stds =  map(1:length(h.prior)) do i
+        minimum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
+    end
+end
+
 train_losses = Dict("level2_jm_cell" => [], "level2_jm" => [], "level2" => [], "qlk" => [], "qch" => [])
 test_losses = Dict("level2_jm_cell" => [], "level2_jm" => [], "level2" => [], "qlk" => [], "qch" => [])
 h_dists_dict = Dict("level2_jm_cell" => [], "level2_jm" => [], "level2" => [])
 costs_dict = Dict("level2_jm_cell" => Costs[], "level2_jm" => Costs[], "level2" => Costs[])
 
-train_losses["qch"] = []
-test_losses["qch"] = []
 
-for i in 1:100
+for i in 1:3
     # exp_games = filter(g -> (size(g) == 3) && (size(transpose(g)) == 3), exp_games)
     n_train = 100
     train_idxs = sample(1:length(exp_games), n_train; replace=false)
@@ -166,13 +181,15 @@ for i in 1:100
     # all_mh = MetaHeuristic([JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)]), SimHeuristic([JointMax(2.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0.])
     # level2_jm_mh = MetaHeuristic([PureHeuristic(1), PureHeuristic(2), PureHeuristic(3), JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.])
     # level2_jm_cell_mh = MetaHeuristic([MaxHeuristic(2.), JointMax(2.), RowHeuristic(-.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0.])
-    level2_jm_mh = MetaHeuristic([MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0.])
+    # level2_jm_mh = MetaHeuristic([MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0.])
+    # level2_jm_mh = MetaHeuristic([MaxHeuristic(2.), JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.])
+    level2_jm_mh = MetaHeuristic([JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.])
     # level2_mh = MetaHeuristic([RowJoint(1.), RowMax(1.), RowMin(1.), RowMean(1.), MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0., 0., 0.])
 
     costs_perfs_dict = Dict()
 
     # costs_perfs_dict["level2_jm_cell"] = fit_cost_opt_h(all_mh, train_games, actual_h, opp_h, 1*64)
-    costs_perfs_dict["level2_jm"] = fit_cost_opt_h(level2_jm_mh, train_games, actual_h, opp_h, 2*64)
+    costs_perfs_dict["level2_jm"] = fit_cost_opt_h(level2_jm_mh, train_games, actual_h, opp_h, 4*64)
     # costs_perfs_dict["level2_jm_cell"] = fit_cost_opt_h(level2_jm_cell_mh, train_games, actual_h, opp_h, 2*64)
     # costs_perfs_dict["level2"] = fit_cost_opt_h(level2_mh, train_games, actual_h, opp_h, 2*64)
     qlk_h = QLK(0.07, 0.64, 2.3)
@@ -198,6 +215,8 @@ for i in 1:100
         push!(h_dists_dict[name], mean(h_distss))
         push!(costs_dict[name], best_costs)
         println(std_hdist(best_h, exp_games, opp_h, best_costs))
+        println(min_hdist(best_h, exp_games, opp_h, best_costs))
+        println(max_hdist(best_h, exp_games, opp_h, best_costs))
     end
     qlk_train_loss =  prediction_loss(qlk_h, train_games, actual_h)
     qlk_test_loss =  prediction_loss(qlk_h, test_games, actual_h)
@@ -228,10 +247,11 @@ for (key, val) in test_losses
     end
 end
 
+
 println("------ H distributions -------")
 for (key, val) in h_dists_dict
     if length(val) > 0
-        println(key,": ", mean(val))
+        println(key,": ", mean(val[20:end]))
     end
 end
 
@@ -247,23 +267,6 @@ for (key, val) in costs_dict
     end
 end
 
-
-
-function mean(costs_vec::Vector{Costs})
-    means = []
-    for field in fieldnames(Costs)
-        push!(means, mean([getfield(c, field) for c in costs_vec]))
-    end
-    means
-end
-
-function std(costs_vec::Vector{Costs})
-    stds = []
-    for field in fieldnames(Costs)
-        push!(stds, std([getfield(c, field) for c in costs_vec]))
-    end
-    stds
-end
 
 vec_costs = convert(Vector{Costs}, costs_dict["level2"])
 mean(vec_costs)
@@ -359,8 +362,8 @@ for data_set in data_sets
 
     costs_perfs_dict = Dict()
 
-    level2_mh = MetaHeuristic([RowJoint(1.), RowMax(1.), RowMin(1.), RowMean(1.), MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0., 0., 0.])
-
+    # level2_mh = MetaHeuristic([RowJoint(1.), RowMax(1.), RowMin(1.), RowMean(1.), MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0., 0., 0.])
+    level2_mh = MetaHeuristic([JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.])
     # costs_perfs_dict["level2_jm_cell"] = fit_cost_opt_h(all_mh, data_games, actual_h, opp_h, 1*64)
     # costs_perfs_dict["level2_jm"] = fit_cost_opt_h(no_α_mh, data_games, actual_h, opp_h, 1*64)
     # costs_perfs_dict["level2"] = fit_cost_opt_h(no_αγ_mh, data_games, actual_h, opp_h, 1*64)
