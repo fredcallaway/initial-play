@@ -104,8 +104,8 @@ function fit_cost_opt_h(init_mh::MetaHeuristic, games, acutal_h, opp_h, n=64)
             # end
 
             # opt_mh = fit_h!(mh, games, actual_h, opp_h, costs; init_x = get_parameters(init_mh))
-            # opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
-            opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
+            opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
+            # opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
             res = prediction_loss(opt_mh, games, actual_h, opp_h, costs)
             return (res, costs, opt_mh)
         catch err
@@ -275,6 +275,7 @@ std(vec_costs)
 ##############################
 # %% Look at games where the mh perform bad or good
 ##############################
+
 mh = MetaHeuristic([RowJoint(1.), RowMax(1.), RowMin(1.), RowMean(1.), MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0., 0., 0.])
 perfs = fit_cost_opt_h(mh, exp_games, actual_h, opp_h, 2*64)
 perfs = mh
