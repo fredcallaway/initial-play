@@ -104,8 +104,8 @@ function fit_cost_opt_h(init_mh::MetaHeuristic, games, acutal_h, opp_h, n=64)
             # end
 
             # opt_mh = fit_h!(mh, games, actual_h, opp_h, costs; init_x = get_parameters(init_mh))
-            opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
-            # opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
+            # opt_mh = fit_prior!(opt_mh, games, actual_h, opp_h, costs)
+            opt_mh = opt_prior!(opt_mh, games, opp_h, costs)
             res = prediction_loss(opt_mh, games, actual_h, opp_h, costs)
             return (res, costs, opt_mh)
         catch err
@@ -142,24 +142,6 @@ end
 #############################
 #%% Train and test sets
 #############################
-
-function std_hdist(h, games, opp_h, best_costs)
-    stds =  map(1:length(h.prior)) do i
-        std([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
-    end
-end
-
-function max_hdist(h, games, opp_h, best_costs)
-    stds =  map(1:length(h.prior)) do i
-        maximum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
-    end
-end
-
-function min_hdist(h, games, opp_h, best_costs)
-    stds =  map(1:length(h.prior)) do i
-        minimum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
-    end
-end
 
 train_losses = Dict("level2_jm_cell" => [], "level2_jm" => [], "level2" => [], "qlk" => [], "qch" => [])
 test_losses = Dict("level2_jm_cell" => [], "level2_jm" => [], "level2" => [], "qlk" => [], "qch" => [])
@@ -275,7 +257,6 @@ std(vec_costs)
 ##############################
 # %% Look at games where the mh perform bad or good
 ##############################
-
 mh = MetaHeuristic([RowJoint(1.), RowMax(1.), RowMin(1.), RowMean(1.), MaxHeuristic(2.), JointMax(2.), RowHeuristic(-0.4, 2.), RandomHeuristic(), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0., 0., 0.])
 perfs = fit_cost_opt_h(mh, exp_games, actual_h, opp_h, 2*64)
 perfs = mh
@@ -350,7 +331,6 @@ end
 # %% Comparing datasets (not finished)
 ##############################
 data_set_perfs = Dict()
-
 
 
 for data_set in data_sets

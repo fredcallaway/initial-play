@@ -579,7 +579,7 @@ mutable struct QLK <: Heuristic
 end
 
 QLK(α_0, α_1, λ) = QLK(α_0, α_1, λ,λ, λ)
-QLK(α_0, α_1, λ1, λ21, λ22) = QLK(α_0, α_1, λ, λ, λ)
+QLK(α_0, α_1, λ1, λ21, λ22) = QLK(α_0, α_1, λ1, λ21, λ22)
 
 function play_distribution(h::QLK, g::Game)
     level_0 = ones(Real, size(g))/size(g)
@@ -600,16 +600,20 @@ end
 mutable struct QCH <: Heuristic
     α_0::Real
     α_1::Real
-    λ::Real
+    λ1::Real
+    λ21::Real
+    λ22::Real
 end
+
+QCH(α_0, α_1, λ) = QCH(α_0, α_1, λ,λ, λ)
 
 function play_distribution(h::QCH, g::Game)
     level_0 = ones(Real, size(g))/size(g)
-    level_1 = play_distribution(RowHeuristic(0., h.λ), g)
-    opp_level_1 = play_distribution(RowHeuristic(0., h.λ), transpose(g))
+    level_1 = play_distribution(RowHeuristic(0., h.λ1), g)
+    opp_level_1 = play_distribution(RowHeuristic(0., h.λ21), transpose(g))
     opp_play = (level_0*h.α_0 + opp_level_1*h.α_1)/(h.α_0 + h.α_1)
     opp_h = CacheHeuristic([transpose(g)], [opp_play])
-    level_2 = play_distribution(SimHeuristic([opp_h, RowHeuristic(0., h.λ)]), g)
+    level_2 = play_distribution(SimHeuristic([opp_h, RowHeuristic(0., h.λ22)]), g)
     # α_2 = max(1 - h.α_0 - h.α_1, 0.)
     α_0 = min(max(h.α_0, 0.),1.)
 
@@ -619,8 +623,8 @@ function play_distribution(h::QCH, g::Game)
 end
 
 function cost(h::QCH, c::Costs)
-    (abs(h.λ) * c.λ*h.α_1 +
-    2*abs(h.λ) *c.λ*(1 -h.α_1 - h.α_0))
+    (abs(h.λ1) * c.λ*h.α_1 +
+    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -h.α_1 - h.α_0))
 end
 # %% ==================== MetaHeuristic ====================
 
@@ -638,6 +642,17 @@ end
 
 function play_distribution(mh::MetaHeuristic, g::Game, opp_h::Heuristic, costs::Costs)
     h_dist = h_distribution(mh, g, opp_h, costs)
+    play = zeros(Real, size(g))
+    for i in 1:length(h_dist)
+        play += h_dist[i] * play_distribution(mh.h_list[i], g)
+    end
+    play
+end
+
+function play_distribution(mh::MetaHeuristic, g::Game)
+    ### Play according to prior,
+    ### does not adjust according to performance in specific game
+    h_dist = softmax(mh.prior ./ costs.m_λ)
     play = zeros(Real, size(g))
     for i in 1:length(h_dist)
         play += h_dist[i] * play_distribution(mh.h_list[i], g)
@@ -842,4 +857,22 @@ function std(costs_vec::Vector{Costs})
         push!(stds, std([getfield(c, field) for c in costs_vec]))
     end
     stds
+end
+
+function std_hdist(h, games, opp_h, best_costs)
+    stds =  map(1:length(h.prior)) do i
+        std([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
+    end
+end
+
+function max_hdist(h, games, opp_h, best_costs)
+    stds =  map(1:length(h.prior)) do i
+        maximum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
+    end
+end
+
+function min_hdist(h, games, opp_h, best_costs)
+    stds =  map(1:length(h.prior)) do i
+        minimum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
+    end
 end
