@@ -6,15 +6,16 @@ import Base
 import Base: ==, hash
 import DataStructures: OrderedDict
 using Optim
-using BenchmarkTools
+# using BenchmarkTools
 import Printf: @printf, @sprintf
 import LineSearches
+using Flux # To not get a conflict with its sigmoid and softmax
 # import Base: rand
-function softmax(x)
-    ex = exp.(x)
-    ex ./= sum(ex)
-    ex
-end
+# function softmax(x)
+#     ex = exp.(x)
+#     ex ./= sum(ex)
+#     ex
+# end
 
 function weighted_softmax(priors, vals)
     ex = priors .* exp.(vals)
@@ -22,7 +23,7 @@ function weighted_softmax(priors, vals)
     ex
 end
 
-sigmoid(x) = (1. / (1. + exp(-x)))
+# sigmoid(x) = (1. / (1. + exp(-x)))
 
 # %% ==================== Games ====================
 
