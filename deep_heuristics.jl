@@ -10,17 +10,15 @@ include("DeepLayers.jl")
 
 opp_h = QLK(0.2, 0.1, 3.)
 opp_h2 = QLK(0.25, 0.1, 3.)
-g = Game(3,0.1)
-play_distribution(opp_h, g)
 
-games = [Game(3,0.1) for i in 1:1000];
-test_games = [Game(3,0.1) for i in 1:1000];
+games = [Game(3,0.1) for i in 1:100];
+test_games = [Game(3,0.1) for i in 1:100];
 
 model = Chain(Game_Dense(1, 10, sigmoid), Game_Dense(10,10), Game_Soft(10), Action_Response(1), Action_Response(2), Last(3))
 data = [(g, play_distribution(opp_h, g)) for g in games];
 test_data = [(g, play_distribution(opp_h, g)) for g in test_games];
 
-loss(x::Game, y) = Flux.crossentropy(model(x), y) + 0.0001*sum(norm, params(model))
+loss(x::Game, y) =Flux.crossentropy(model(x), y) + 0.00001*sum(norm, params(model))
 loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
 loss(x::Vector{Float64}, y) = Flux.crossentropy(x, y)
 loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])
@@ -28,27 +26,57 @@ loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,
 min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])
 
 model(data[3][1])
-compare_loos = sum([loss(play_distribution(opp_h2, g), play_distribution(opp_h2, g)) for g in games])
-
 min_loss(data)
 loss(data)
 loss_no_norm(data)
 
-
-
-HCmax = [[maximum([H1[i,l][k] for l in 1:size(H1)[2]]) for k in 1:length(H1[1,1])] for i in 1:size(H1)[1], j in 1:size(H1)[2]]
-HRmax = [[maximum([H1[l,i][k] for l in 1:size(H1)[1]]) for k in 1:length(H1[1,1])] for i in 1:size(H1)[1], j in 1:size(H1)[2]]
-
-[Hmax[i,j][1] for i in 1:3, j in 1:3]
-
 ps = Flux.params(model)
-
-opt = ADAM(0.001, (0.9, 0.999))
-
+opt = ADAM(0.01, (0.9, 0.999))
 evalcb() = @show(loss_no_norm(data), loss(data), min_loss(data))
+@epochs 20 Flux.train!(loss_no_norm, ps, data, opt, cb = Flux.throttle(evalcb,5))
 
-@epochs 5 Flux.train!(loss_no_norm, ps, data, opt, cb = Flux.throttle(evalcb,5))
 
+#%%
+costs = Costs(0.03, 0.1, 0.3, 5.)
+ρ = 0.9
+games = [Game(3, ρ) for i in 1:100];
+test_games = [Game(3, ρ) for i in 1:100];
+mh = MetaHeuristic([JointMax(2.), NashHeuristic(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [30., 30., 0., 0., 0., 0., 0., 30.]);
+mh = opt_prior!(mh, games, opp_h, costs);
+mh_no = MetaHeuristic([RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0.]);
+mh_no = opt_prior!(mh_no, games, opp_h, costs);
+# mh = optimize_h!(mh, games, opp_h, costs; init_x = get_parameters(mh))
+h_dists = [h_distribution(mh, g, opp_h, costs) for g in games]
+avg_h_dist = mean(h_dists)
+data =  [(g, play_distribution(mh, g)) for g in games];
+test_data = [(g, play_distribution(mh, g)) for g in test_games];
+model = Chain(Game_Dense(1, 50, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3));
+
+min_loss(data)
+loss(data)
+loss_no_norm(data)
+ps = Flux.params(model)
+opt = ADAM(0.01, (0.9, 0.999))
+opt = Descent(0.1)
+evalcb() = @show(loss_no_norm(data), min_loss(data), loss_no_norm(test_data), min_loss(test_data))
+@epochs 10 Flux.train!(loss_no_norm, ps, data, opt, cb = Flux.throttle(evalcb,5))
+
+actual_h = CacheHeuristic(games, [play_distribution(mh, g) for g in games])
+qlk_h = QLK(0.07, 0.64, 2.3)
+# best_fit_qlk = fit_h!(qlk_h, exp_games, actual_h; loss_f = mean_square)
+best_fit_qlk = fit_h!(qlk_h, games, actual_h)
+prediction_loss(qlk_h, games, actual_h)
+
+
+
+games = [Game(3, 0.8) for i in 1:1000]
+mh_positive = MetaHeuristic([JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.])
+mh_positive = opt_prior!(mh_positive, games, opp_h, costs)
+mh_positive_no = MetaHeuristic([RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0.])
+mh_positive_no = opt_prior!(mh_positive_no, games, opp_h, costs)
+# mh = optimize_h!(mh, games, opp_h, costs; init_x = get_parameters(mh))
+h_dists = [h_distribution(mh_positive, g, opp_h, costs) for g in games]
+avg_h_dist = mean(h_dists)
 
 
 

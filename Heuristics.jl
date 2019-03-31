@@ -472,7 +472,8 @@ end
 
 function cost(h::NashHeuristic, c::Costs)
     # c.nash +c.λ*abs(h.λ)
-    c.nash + 0.001*abs(h.λ)^2
+    # c.nash + 0.001*abs(h.λ)^2
+    0.001*abs(h.λ)^2
 end
 
 # %% ==================== SimHeuristic ====================

@@ -26,7 +26,8 @@ data_sets = unique(data_name_list)
 
 # Loading data
 
-exp_games = normalize.(convert(Vector{Game}, games_from_json("data/games.json")))
+# exp_games = normalize.(convert(Vector{Game}, games_from_json("data/games.json")))
+exp_games = convert(Vector{Game}, games_from_json("data/games.json"))
 # exp_games = filter(x -> size(x) == 3, exp_games)
 exp_row_plays = plays_vec_from_json("data/rows_played.json")
 exp_col_plays = plays_vec_from_json("data/cols_played.json")
@@ -52,6 +53,15 @@ end
 end
 
 
+n_train = 100
+train_idxs = sample(1:length(exp_games), n_train; replace=false)
+test_idxs = setdiff(1:length(exp_games), train_idxs)
+sort!(train_idxs)
+sort!(test_idxs)
+train_games = exp_games[train_idxs]
+test_games = exp_games[test_idxs]
+train_row = exp_row_plays[train_idxs]
+test_row = exp_row_plays[test_idxs]
 #############################################################
 # %% Finding best predicting quantal level-k  and QCH models.
 ############################################################
@@ -60,6 +70,9 @@ qlk_h = QLK(0.07, 0.64, 2.3)
 # best_fit_qlk = fit_h!(qlk_h, exp_games, actual_h; loss_f = mean_square)
 best_fit_qlk = fit_h!(qlk_h, exp_games, actual_h)
 prediction_loss(qlk_h, exp_games, actual_h)
+best_fit_qlk = fit_h!(qlk_h, train_games, actual_h)
+prediction_loss(qlk_h, train_games, actual_h)
+prediction_loss(qlk_h, test_games, actual_h)
 
 qch_h = QCH(0.07, 0.64, 2.3)
 best_fit_qch = fit_h!(qch_h, exp_games, actual_h)
@@ -81,8 +94,12 @@ using Flux.Tracker: grad, update!
 using LinearAlgebra: norm
 include("DeepLayers.jl")
 
-model = Chain(Game_Dense(1, 50, sigmoid), Game_Dense(50,20), Game_Soft(20), Action_Response(1), Action_Response(2), Last(3))
-data = [(exp_games[i],exp_row_plays[i]) for i in 1:length(exp_games)]
+model = Chain(Game_Dense(1, 50, sigmoid), Game_Dense(50, 50, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
+data = [(exp_games[i],exp_row_plays[i]) for i in 1:length(exp_games)];
+train_data = data[train_idxs];
+test_data = data[test_idxs];
+
+
 
 # test_data = [(g, play_distribution(opp_h, g)) for g in test_games];
 
@@ -93,7 +110,7 @@ loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in 
 loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
 min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])
 
-model(data[3][1])
+model(data[1][1])
 
 
 min_loss(data[1:20])
@@ -102,10 +119,12 @@ loss_no_norm(data)
 
 
 ps = Flux.params(model)
-opt = ADAM(0.001, (0.9, 0.999))
+# opt = ADAM(0.0001, (0.9, 0.999))
+# opt = Nesterov(0.001, 0.9)
+opt = Descent(0.1)
 # evalcb() = @show(loss_no_norm(data), loss(data), min_loss(data))
-evalcb() = @show(loss_no_norm(data), loss(data))
-@epochs 10 Flux.train!(loss_no_norm, ps, data, opt, cb = Flux.throttle(evalcb,5))
+evalcb() = @show(loss_no_norm(train_data), loss_no_norm(test_data))
+@epochs 100 Flux.train!(loss, ps, train_data, opt, cb = Flux.throttle(evalcb,5))
 
 
 

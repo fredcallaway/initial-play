@@ -28,36 +28,45 @@ Affine(in::Integer, out::Integer, σ = identity) = Affine(param(randn(out, in)),
 mutable struct Game_Dense
   Wᴿ
   WUᴿ
-  # WCmaxᴿ
-  # WRmaxᴿ
+  WCmaxᴿ
+  WRmaxᴿ
+  WCmeanᴿ
+  WRmeanᴿ
+  WCminᴿ
+  WRminᴿ
   Wᶜ
   WUᶜ
-  # WCmaxᶜ
-  # WRmaxᶜ
+  WCmaxᶜ
+  WRmaxᶜ
+  WCmeanᶜ
+  WRmeanᶜ
+  WCminᶜ
+  WRminᶜ
   bᴿ
   bᶜ
   σ
 end
 
-tensor_mul(H, W, WU, U, b, σ) = [σ.(W * H[i,j] .+ WU * U[i,j] .+ b) for i in 1:size(H)[1], j in 1:size(H)[2]]
-# tensor_mul(H, W, WU, WCmax, WRmax, U, b, σ) = begin
-#   HCmax = [[smooth_max([H[i,l][k] for l in 1:size(H)[2]]) for k in 1:length(H[1,1])] for i in 1:size(H)[1], j in 1:size(H)[2]]
-#   HRmax = [[smooth_max([H[l,i][k] for l in 1:size(H)[1]]) for k in 1:length(H[1,1])] for i in 1:size(H)[1], j in 1:size(H)[2]]
-#   # res = similar(H, size(H)[1], size(H)[2], size(W)[1])
-#   # res = fill(H[1,1,1], (size(H)[1], size(H)[2], size(W)[1]))
-#   # for i in 1:size(H)[1], j in 1:size(H)[2]
-#     # res[i,j,:] = σ.(W * H[i,j,:] .+ WU * U[i,j] .+ b)
-#   # end
-#   # return res
-#   [σ.(W * H[i,j] .+ WU * U[i,j] .+ WCmax * HCmax[i,j] .+ WRmax * HRmax[i,j] .+ b) for i in 1:size(H)[1], j in 1:size(H)[2]]
-# end
 
-(m::Game_Dense)((Hᴿ, Hᶜ, Uᴿ, Uᶜ)) = begin
-  # (tensor_mul(Hᴿ, m.Wᴿ, m.WUᶜ, m.WCmaxᴿ, m.WRmaxᴿ, Uᶜ, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, m.WCmaxᶜ, m.WRmaxᶜ, Uᴿ, m.bᶜ,m.σ), Uᴿ, Uᶜ)
-  (tensor_mul(Hᴿ, m.Wᴿ, m.WUᶜ, Uᶜ, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, Uᴿ, m.bᶜ,m.σ), Uᴿ, Uᶜ)
+
+tensor_mul(H, W, WU, WCmax, WRmax, WCmean, WRmean, WCmin, WRmin, U, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min, b, σ) = begin
+  # mapslices(x -> W * x, H, dims=3)
+  [σ.(W * H[i,j] .+ WU * U[i,j] .+ WCmax*Uᶜ_max[i,j] .+ WRmax*Uᴿ_max[i,j] .+ WCmean*Uᶜ_mean[i,j] .+ WRmean*Uᴿ_mean[i,j] .+ WCmin*Uᶜ_min[i,j] .+ WRmin*Uᴿ_min[i,j] .+ b) for i in 1:size(H)[1], j in 1:size(H)[2]]
+
+  # [[σ.(sum([W[l,k]*H[k][i,j] + WU[l]*U[i,j] + b[l] + WCmax[l,k]*smooth_max(H[k][i,:]) + WRmax[l,k]*smooth_max(H[k][:,j]) for k in 1:length(H)])) for i in 1:3, j in 1:3] for l in 1:size(W)[1]]
+
 end
 
-(m::Game_Dense)(g::Game) = m((g.row, g.col, g.row, g.col))
+(m::Game_Dense)((Hᴿ, Hᶜ, Uᴿ, Uᶜ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min)) = begin
+  # (tensor_mul(Hᴿ, m.Wᴿ, m.WCmaxᴿ, m.WRmaxᴿ, Uᶜ, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, m.WCmaxᶜ, m.WRmaxᶜ, Uᴿ, m.bᶜ,m.σ), Uᴿ, Uᶜ)
+  # (tensor_mul(m, Hᴿ, Uᶜ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min), tensor_mul(m,Hᶜ, Uᴿ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min,), Uᴿ, Uᶜ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min)
+  (tensor_mul(Hᴿ, m.Wᴿ, m.WUᶜ, m.WCmaxᴿ, m.WRmaxᴿ, m.WCmeanᴿ, m.WRmeanᴿ, m.WCminᴿ, m.WRminᴿ, Uᶜ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, m.WCmaxᶜ, m.WRmaxᶜ, m.WCmeanᶜ, m.WRmeanᶜ, m.WCminᶜ, m.WRminᶜ, Uᴿ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min, m.bᶜ,m.σ), Uᴿ, Uᶜ, Uᴿ_max, Uᶜ_max, Uᴿ_mean, Uᶜ_mean, Uᴿ_min, Uᶜ_min)
+  # (tensor_mul(Hᴿ, m.Wᴿ, m.WUᶜ, Uᶜ, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, Uᴿ, m.bᶜ,m.σ), Uᴿ, Uᶜ)
+end
+# (m::Game_Dense)(g::Game) = m((g.row, g.col, g.row, g.col))
+# (m::Game_Dense)(g::Game) = m(([g.row], [g.col], g.row, g.col))
+# (m::Game_Dense)(g::Game) = m((g.row, g.col, g.row, g.col, mapslices(x -> maximum(x)*ones(length(x)), g.row, dims=1),  mapslices(x -> maximum(x)*ones(length(x)), g.col, dims=2),  mapslices(x -> mean(x)*ones(length(x)), g.row, dims=1),  mapslices(x -> mean(x)*ones(length(x)), g.col, dims=2),  mapslices(x -> minimum(x)*ones(length(x)), g.row, dims=1),  mapslices(x -> minimum(x)*ones(length(x)), g.col, dims=2)))
+(m::Game_Dense)(g::Game) = m((g.row, g.col, g.row, g.col, mapslices(x -> maximum(x)*ones(length(x)), g.row, dims=2),  mapslices(x -> maximum(x)*ones(length(x)), g.col, dims=1),  mapslices(x -> mean(x)*ones(length(x)), g.row, dims=2),  mapslices(x -> mean(x)*ones(length(x)), g.col, dims=1),  mapslices(x -> minimum(x)*ones(length(x)), g.row, dims=2),  mapslices(x -> minimum(x)*ones(length(x)), g.col, dims=1)))
 #
 # (m::Game_Dense)(g::Game) = begin
 #   Hᴿ = similar(g.row, size(g.row)...,1)
@@ -67,18 +76,30 @@ end
 #   m((Hᴿ, Hᶜ, g.row, g.col))
 # end
 Game_Dense(in::Integer, out::Integer, σ = identity) = begin
-  Wᴿ = param(randn(out, in))
-  Wᶜ = param(randn(out, in))
-  WUᴿ = param(randn(out))
-  # WCmaxᴿ = param(randn(out, in))
-  # WRmaxᴿ = param(randn(out, in))
-  WUᶜ = param(randn(out))
-  # WCmaxᶜ = param(randn(out, in))
-  # WRmaxᶜ = param(randn(out, in))
-  bᴿ = param(randn(out))
-  bᶜ = param(randn(out))
-  # Game_Dense(Wᴿ, WUᴿ, WCmaxᴿ,WRmaxᴿ, Wᶜ, WUᶜ, WCmaxᶜ, WRmaxᶜ, bᴿ, bᶜ, σ)
-  Game_Dense(Wᴿ, WUᴿ, Wᶜ, WUᶜ, bᴿ, bᶜ, σ)
+  Wᴿ = param(0.2 .* randn(out, in))
+  Wᶜ = param(0.2 .* randn(out, in))
+  WUᴿ = param(0.2 .* randn(out))
+  WCmaxᴿ = param(0.2 .* randn(out))
+  WRmaxᴿ = param(0.2 .* randn(out))
+  WCmeanᴿ = param(0.2 .* randn(out))
+  WRmeanᴿ = param(0.2 .* randn(out))
+  WCminᴿ = param(0.2 .* randn(out))
+  WRminᴿ = param(0.2 .* randn(out))
+  # WCmaxᴿ = param(0.2 .* randn(out, in))
+  # WRmaxᴿ = param(0.2 .* randn(out, in))
+  WUᶜ = param(0.2 .* randn(out))
+  WCmaxᶜ = param(0.2 .* randn(out))
+  WRmaxᶜ = param(0.2 .* randn(out))
+  WCmeanᶜ = param(0.2 .* randn(out))
+  WRmeanᶜ = param(0.2 .* randn(out))
+  WCminᶜ = param(0.2 .* randn(out))
+  WRminᶜ = param(0.2 .* randn(out))
+  # WCmaxᶜ = param(0.2 .* randn(out, in))
+  # WRmaxᶜ = param(0.2 .* randn(out, in))
+  bᴿ = param(0.2 .* randn(out))
+  bᶜ = param(0.2 .* randn(out))
+  Game_Dense(Wᴿ, WUᴿ, WCmaxᴿ,WRmaxᴿ, WCmeanᴿ,WRmeanᴿ, WCminᴿ,WRminᴿ, Wᶜ, WUᶜ, WCmaxᶜ, WRmaxᶜ, WCmeanᶜ, WRmeanᶜ, WCminᶜ, WRminᶜ, bᴿ, bᶜ, σ)
+  # Game_Dense(Wᴿ, WUᴿ, Wᶜ, WUᶜ, bᴿ, bᶜ, σ)
 end
 
 mutable struct Game_Soft
@@ -89,17 +110,22 @@ end
 (m::Game_Soft)((Hᴿ, Hᶜ, Uᴿ, Uᶜ)) = begin
   n_rows = size(Hᴿ)[1]
   n_cols = size(Hᴿ)[2]
+  # n_rows = size(Hᴿ[1])[1]
+  # n_cols = size(Hᴿ[1])[2]
   # wᴿ = max.(0,m.Wᴿ)
   # wᴿ = wᴿ/sum(wᴿ)
   wᴿ = softmax(m.Wᴿ)
   fᴿ = [my_softmax(sum([Hᴿ[i,j][k] for i in 1:n_rows, j in 1:n_cols], dims=2)) for k in 1:length(Hᴿ[1,1])]
   # fᴿ = [my_softmax(sum(Hᴿ[:,:,k], dims=2)) for k in 1:size(Hᴿ)[3]]
+  # fᴿ = [my_softmax(sum(h, dims=2)) for h in Hᴿ]
+  # fᴿ = mapslices(x -> my_softmax(sum(x, dims=2)), Hᴿ, dims=(1,2))
   aᴿ = [sum([fᴿ[k][i]*wᴿ[k] for k in 1:length(fᴿ)]) for i in 1:n_rows]
   # wᶜ = max.(0,m.Wᶜ)
   # wᶜ = wᶜ/sum(wᶜ)
   wᶜ = softmax(m.Wᶜ)
   fᶜ = [my_softmax(transpose(sum([Hᶜ[i,j][k] for i in 1:n_rows, j in 1:n_cols], dims=1))) for k in 1:length(Hᴿ[1,1])]
   # fᶜ = [my_softmax(transpose(sum(Hᶜ[:,:,k], dims=1))) for k in 1:size(Hᶜ)[3]]
+  # fᶜ = [my_softmax(transpose(sum(h, dims=1))) for h in Hᶜ]
   aᶜ = [sum([fᶜ[k][i]*wᶜ[k] for k in 1:length(fᶜ)]) for i in 1:n_cols]
   return ([aᴿ], [aᶜ], Uᴿ, Uᶜ)
 end
