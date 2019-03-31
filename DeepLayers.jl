@@ -10,6 +10,8 @@ function my_softmax(x)
     ex
 end
 
+smooth_max(r) = r' * my_softmax(8 * r)
+
 mutable struct Affine
   W
   b
@@ -26,28 +28,56 @@ Affine(in::Integer, out::Integer, σ = identity) = Affine(param(randn(out, in)),
 mutable struct Game_Dense
   Wᴿ
   WUᴿ
+  # WCmaxᴿ
+  # WRmaxᴿ
   Wᶜ
   WUᶜ
+  # WCmaxᶜ
+  # WRmaxᶜ
   bᴿ
   bᶜ
   σ
 end
 
 tensor_mul(H, W, WU, U, b, σ) = [σ.(W * H[i,j] .+ WU * U[i,j] .+ b) for i in 1:size(H)[1], j in 1:size(H)[2]]
+# tensor_mul(H, W, WU, WCmax, WRmax, U, b, σ) = begin
+#   HCmax = [[smooth_max([H[i,l][k] for l in 1:size(H)[2]]) for k in 1:length(H[1,1])] for i in 1:size(H)[1], j in 1:size(H)[2]]
+#   HRmax = [[smooth_max([H[l,i][k] for l in 1:size(H)[1]]) for k in 1:length(H[1,1])] for i in 1:size(H)[1], j in 1:size(H)[2]]
+#   # res = similar(H, size(H)[1], size(H)[2], size(W)[1])
+#   # res = fill(H[1,1,1], (size(H)[1], size(H)[2], size(W)[1]))
+#   # for i in 1:size(H)[1], j in 1:size(H)[2]
+#     # res[i,j,:] = σ.(W * H[i,j,:] .+ WU * U[i,j] .+ b)
+#   # end
+#   # return res
+#   [σ.(W * H[i,j] .+ WU * U[i,j] .+ WCmax * HCmax[i,j] .+ WRmax * HRmax[i,j] .+ b) for i in 1:size(H)[1], j in 1:size(H)[2]]
+# end
 
 (m::Game_Dense)((Hᴿ, Hᶜ, Uᴿ, Uᶜ)) = begin
+  # (tensor_mul(Hᴿ, m.Wᴿ, m.WUᶜ, m.WCmaxᴿ, m.WRmaxᴿ, Uᶜ, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, m.WCmaxᶜ, m.WRmaxᶜ, Uᴿ, m.bᶜ,m.σ), Uᴿ, Uᶜ)
   (tensor_mul(Hᴿ, m.Wᴿ, m.WUᶜ, Uᶜ, m.bᴿ, m.σ), tensor_mul(Hᶜ, m.Wᶜ, m.WUᴿ, Uᴿ, m.bᶜ,m.σ), Uᴿ, Uᶜ)
 end
 
 (m::Game_Dense)(g::Game) = m((g.row, g.col, g.row, g.col))
-
+#
+# (m::Game_Dense)(g::Game) = begin
+#   Hᴿ = similar(g.row, size(g.row)...,1)
+#   Hᴿ[:,:,1] = g.row
+#   Hᶜ = similar(g.col, size(g.col)...,1)
+#   Hᶜ[:,:,1] = g.col
+#   m((Hᴿ, Hᶜ, g.row, g.col))
+# end
 Game_Dense(in::Integer, out::Integer, σ = identity) = begin
   Wᴿ = param(randn(out, in))
   Wᶜ = param(randn(out, in))
   WUᴿ = param(randn(out))
+  # WCmaxᴿ = param(randn(out, in))
+  # WRmaxᴿ = param(randn(out, in))
   WUᶜ = param(randn(out))
+  # WCmaxᶜ = param(randn(out, in))
+  # WRmaxᶜ = param(randn(out, in))
   bᴿ = param(randn(out))
   bᶜ = param(randn(out))
+  # Game_Dense(Wᴿ, WUᴿ, WCmaxᴿ,WRmaxᴿ, Wᶜ, WUᶜ, WCmaxᶜ, WRmaxᶜ, bᴿ, bᶜ, σ)
   Game_Dense(Wᴿ, WUᴿ, Wᶜ, WUᶜ, bᴿ, bᶜ, σ)
 end
 
@@ -63,14 +93,14 @@ end
   # wᴿ = wᴿ/sum(wᴿ)
   wᴿ = softmax(m.Wᴿ)
   fᴿ = [my_softmax(sum([Hᴿ[i,j][k] for i in 1:n_rows, j in 1:n_cols], dims=2)) for k in 1:length(Hᴿ[1,1])]
+  # fᴿ = [my_softmax(sum(Hᴿ[:,:,k], dims=2)) for k in 1:size(Hᴿ)[3]]
   aᴿ = [sum([fᴿ[k][i]*wᴿ[k] for k in 1:length(fᴿ)]) for i in 1:n_rows]
-
   # wᶜ = max.(0,m.Wᶜ)
   # wᶜ = wᶜ/sum(wᶜ)
   wᶜ = softmax(m.Wᶜ)
-  fᶜ = [my_softmax(transpose(sum([Hᶜ[i,j][k] for i in 1:n_rows, j in 1:n_cols], dims=1))) for k in 1:length(Hᶜ[1,1])]
+  fᶜ = [my_softmax(transpose(sum([Hᶜ[i,j][k] for i in 1:n_rows, j in 1:n_cols], dims=1))) for k in 1:length(Hᴿ[1,1])]
+  # fᶜ = [my_softmax(transpose(sum(Hᶜ[:,:,k], dims=1))) for k in 1:size(Hᶜ)[3]]
   aᶜ = [sum([fᶜ[k][i]*wᶜ[k] for k in 1:length(fᶜ)]) for i in 1:n_cols]
-
   return ([aᴿ], [aᶜ], Uᴿ, Uᶜ)
 end
 

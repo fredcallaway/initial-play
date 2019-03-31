@@ -9,13 +9,13 @@ using Optim
 # using BenchmarkTools
 import Printf: @printf, @sprintf
 import LineSearches
-using Flux # To not get a conflict with its sigmoid and softmax
+# using Flux # To not get a conflict with its sigmoid and my_softmax
 # import Base: rand
-# function softmax(x)
-#     ex = exp.(x)
-#     ex ./= sum(ex)
-#     ex
-# end
+function my_softmax(x)
+    ex = exp.(x)
+    ex ./= sum(ex)
+    ex
+end
 
 function weighted_softmax(priors, vals)
     ex = priors .* exp.(vals)
@@ -164,12 +164,12 @@ function row_values(h::RowCellHeuristic, g::Game)
         # s = @. r / (1 + exp(-h.α * c))
         s = @. r / (1 + exp(-h.α * c))
         k = h.γ / max(1., (maximum(s) - minimum(s)))
-        v = s' * softmax(k * s)
+        v = s' * my_softmax(k * s)
     end
 end
 
 function play_distribution(h::RowCellHeuristic, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 #
 # function cost(h::RowCellHeuristic, c::Costs)
@@ -196,12 +196,12 @@ function row_values(h::RowHeuristic, g::Game)
         r = @view g.row[i, :]
         # a = h.α / max(1., (maximum(c) - minimum(c)))  # NOTE: Do we want this?
         k = h.γ / max(1., (maximum(r) - minimum(r)))
-        v = r' * softmax(k * r)
+        v = r' * my_softmax(k * r)
     end
 end
 
 function play_distribution(h::RowHeuristic, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowHeuristic, c::Costs)
@@ -226,12 +226,12 @@ function row_values(h::RowγHeuristic, g::Game)
         r = @view g.row[i, :]
         # a = h.α / max(1., (maximum(c) - minimum(c)))  # NOTE: Do we want this?
         k = h.γ / max(1., (maximum(r) - minimum(r)))
-        v = r' * softmax(k * r)
+        v = r' * my_softmax(k * r)
     end
 end
 
 function play_distribution(h::RowγHeuristic, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowγHeuristic, c::Costs)
@@ -269,7 +269,7 @@ function row_values(h::RowMean, g::Game)
 end
 
 function play_distribution(h::RowMean, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowMean, c::Costs)
@@ -292,7 +292,7 @@ function row_values(h::RowMin, g::Game)
 end
 
 function play_distribution(h::RowMin, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowMin, c::Costs)
@@ -315,7 +315,7 @@ function row_values(h::RowMax, g::Game)
 end
 
 function play_distribution(h::RowMax, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowMax, c::Costs)
@@ -340,7 +340,7 @@ function row_values(h::RowJoint, g::Game)
 end
 
 function play_distribution(h::RowJoint, g::Game)
-    softmax(h.λ * row_values(h, g))
+    my_softmax(h.λ * row_values(h, g))
 end
 
 function cost(h::RowJoint, c::Costs)
@@ -403,7 +403,7 @@ function play_distribution(h::MaxHeuristic, g::Game)
         # c = g.col[i,j]
         cell_values[i,j] = r
     end
-    cell_probs = softmax(cell_values .* h.λ)
+    cell_probs = my_softmax(cell_values .* h.λ)
     [+(cell_probs[i,:]...) for i in 1:size(g)]
 end
 
@@ -429,7 +429,7 @@ function play_distribution(h::JointMax, g::Game)
         c = g.col[i,j]
         cell_values[i,j] = min(r,c)
     end
-    cell_probs = softmax(cell_values .* h.λ)
+    cell_probs = my_softmax(cell_values .* h.λ)
     [+(cell_probs[i,:]...) for i in 1:size(g)]
 end
 
@@ -462,7 +462,7 @@ function play_distribution(h::NashHeuristic, g::Game)
     neqs = find_pure_nash(g)
     pres = zeros(Real, size(g))
     if length(neqs) > 0
-        res = softmax([h.λ * x[3] for x in neqs])
+        res = my_softmax([h.λ * x[3] for x in neqs])
         for i in 1:length(res)
             pres[neqs[i][1]] += res[i]
         end
@@ -559,7 +559,7 @@ function play_distribution(h::CellHeuristic, g::Game)
         c = @view g.col[i,j]
         cell_values[i,j] = r / (1 + exp(-h.α * c))
     end
-    cell_probs = softmax(cell_values .* h.λ)
+    cell_probs = my_softmax(cell_values .* h.λ)
     [+(cell_probs[i,:]...) for i in 1:size(g)]
 end
 
@@ -637,7 +637,7 @@ end
 
 function h_distribution(mh::MetaHeuristic, g::Game, opp_h::Heuristic, costs::Costs)
     h_values = map(h -> expected_payoff(h, opp_h, g) - costs(h), mh.h_list)
-    softmax((mh.prior .+ h_values) ./ costs.m_λ)
+    my_softmax((mh.prior .+ h_values) ./ costs.m_λ)
     # weighted_softmax(mh.prior, h_values ./ mh.m_λ)
 end
 
@@ -653,7 +653,7 @@ end
 function play_distribution(mh::MetaHeuristic, g::Game)
     ### Play according to prior,
     ### does not adjust according to performance in specific game
-    h_dist = softmax(mh.prior ./ costs.m_λ)
+    h_dist = my_softmax(mh.prior ./ costs.m_λ)
     play = zeros(Real, size(g))
     for i in 1:length(h_dist)
         play += h_dist[i] * play_distribution(mh.h_list[i], g)

@@ -17,8 +17,8 @@ games = [Game(3,0.1) for i in 1:1000];
 test_games = [Game(3,0.1) for i in 1:1000];
 
 model = Chain(Game_Dense(1, 10, sigmoid), Game_Dense(10,10), Game_Soft(10), Action_Response(1), Action_Response(2), Last(3))
-data = [(g, play_distribution(opp_h, g)) for g in games]
-test_data = [(g, play_distribution(opp_h, g)) for g in test_games]
+data = [(g, play_distribution(opp_h, g)) for g in games];
+test_data = [(g, play_distribution(opp_h, g)) for g in test_games];
 
 loss(x::Game, y) = Flux.crossentropy(model(x), y) + 0.0001*sum(norm, params(model))
 loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
@@ -34,14 +34,6 @@ min_loss(data)
 loss(data)
 loss_no_norm(data)
 
-H1, H2, U1, U2 = Game_Dense(1,10)(data[3][1])
-
-i = 1
-H1[1,2]
-k = 2
-
-H = ones(3,3,10)
-H[1,2,:]
 
 
 HCmax = [[maximum([H1[i,l][k] for l in 1:size(H1)[2]]) for k in 1:length(H1[1,1])] for i in 1:size(H1)[1], j in 1:size(H1)[2]]

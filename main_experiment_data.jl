@@ -71,6 +71,43 @@ prediction_loss(l1_h, exp_games, actual_h)
 opt_l1 = optimize_h!(l1_h, exp_games, opp_h, good_costs)
 prediction_loss(opt_l1, exp_games, actual_h)
 
+####################################################
+# %% Finding optimal costs and share 1 vs 2 players
+###################################################
+using Flux
+using Flux: @epochs
+using Flux.Tracker
+using Flux.Tracker: grad, update!
+using LinearAlgebra: norm
+include("DeepLayers.jl")
+
+model = Chain(Game_Dense(1, 50, sigmoid), Game_Dense(50,20), Game_Soft(20), Action_Response(1), Action_Response(2), Last(3))
+data = [(exp_games[i],exp_row_plays[i]) for i in 1:length(exp_games)]
+
+# test_data = [(g, play_distribution(opp_h, g)) for g in test_games];
+
+loss(x::Game, y) = Flux.crossentropy(model(x), y) + 0.0001*sum(norm, params(model))
+loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
+loss(x::Vector{Float64}, y) = Flux.crossentropy(x, y)
+loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
+loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
+min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])
+
+model(data[3][1])
+
+
+min_loss(data[1:20])
+loss(data)
+loss_no_norm(data)
+
+
+ps = Flux.params(model)
+opt = ADAM(0.001, (0.9, 0.999))
+# evalcb() = @show(loss_no_norm(data), loss(data), min_loss(data))
+evalcb() = @show(loss_no_norm(data), loss(data))
+@epochs 10 Flux.train!(loss_no_norm, ps, data, opt, cb = Flux.throttle(evalcb,5))
+
+
 
 ####################################################
 # %% Finding optimal costs and share 1 vs 2 players
