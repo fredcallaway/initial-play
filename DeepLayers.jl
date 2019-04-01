@@ -73,7 +73,6 @@ mutable struct Game_Soft
   Wᴿ
   Wᶜ
 end
-
 # (m::Game_Soft)(Hᴿ, Hᶜ, US, Uᴿ, Uᶜ) = m(Hᴿ, Hᶜ, Uᴿ, Uᶜ)
 (m::Game_Soft)(t) = m(t...)
 (m::Game_Soft)(Hᴿ, Hᶜ, US, Uᴿ, Uᶜ) = begin
@@ -123,8 +122,8 @@ Action_Response(level::Integer) = Action_Response(randn(level), randn(level), 3*
   vᶜ = my_softmax(m.vᶜ)
   λᴿ = max(0., m.λᴿ)
   λᶜ = max(0., m.λᶜ)
-  aᴿ = my_softmax([sum([m.λᴿ * sum(Uᴿ[i,:] .* Aᶜ[l]) * vᴿ[l] for l in 1:level]) for i in 1:n_rows])
-  aᶜ = my_softmax([sum([m.λᶜ *  sum(Aᴿ[l] .* Uᶜ[:,i]) * vᶜ[l] for l in 1:level]) for i in 1:n_rows])
+  aᴿ = my_softmax([sum([λᴿ * sum(Uᴿ[i,:] .* Aᶜ[l]) * vᴿ[l] for l in 1:level]) for i in 1:n_rows])
+  aᶜ = my_softmax([sum([λᶜ * sum(Aᴿ[l] .* Uᶜ[:,i]) * vᶜ[l] for l in 1:level]) for i in 1:n_rows])
   return [Aᴿ..., aᴿ], [Aᶜ..., aᶜ], Uᴿ, Uᶜ
 end
 

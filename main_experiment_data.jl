@@ -62,6 +62,8 @@ train_games = exp_games[train_idxs]
 test_games = exp_games[test_idxs]
 train_row = exp_row_plays[train_idxs]
 test_row = exp_row_plays[test_idxs]
+miss_games = exp_games[miss_idx]
+miss_plays = exp_row_plays[miss_idx]
 #############################################################
 # %% Finding best predicting quantal level-k  and QCH models.
 ############################################################
@@ -73,6 +75,9 @@ prediction_loss(qlk_h, exp_games, actual_h)
 best_fit_qlk = fit_h!(qlk_h, train_games, actual_h)
 prediction_loss(qlk_h, train_games, actual_h)
 prediction_loss(qlk_h, test_games, actual_h)
+
+best_fit_qlk = fit_h!(qlk_h, miss_games, actual_h)
+prediction_loss(qlk_h, miss_games, actual_h)
 
 qch_h = QCH(0.07, 0.64, 2.3)
 best_fit_qch = fit_h!(qch_h, exp_games, actual_h)
@@ -95,11 +100,13 @@ using LinearAlgebra: norm
 include("DeepLayers.jl")
 
 
-model = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense_full(50,20, sigmoid), Game_Dense(20,10), Game_Soft(10), Action_Response(1), Action_Response(2), Last(3))
+model = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense_full(50,50, sigmoid), Game_Dense(50,40), Game_Soft(40), Action_Response(1), Action_Response(2), Action_Response(3), Last(4))
+model = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense_full(50,50, sigmoid), Game_Dense_full(50,40), Game_Soft(40), Last(1))
 # model = Chain(Game_Dense(1, 30, sigmoid), Game_Dense(30, 30, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
 data = [(exp_games[i],exp_row_plays[i]) for i in 1:length(exp_games)];
 train_data = data[train_idxs];
 test_data = data[test_idxs];
+miss_data = data[miss_idx]
 
 
 
@@ -121,14 +128,81 @@ loss_no_norm(data)
 
 
 ps = Flux.params(model)
-opt = ADAM(0.01, (0.9, 0.999))
+# opt = Descent(0.05)
+opt = ADAM(0.001, (0.9, 0.999))
 # opt = Nesterov(0.001, 0.9)
-# opt = Descent(0.1)
 # evalcb() = @show(loss_no_norm(data), loss(data), min_loss(data))
 evalcb() = @show(loss_no_norm(train_data), loss_no_norm(test_data))
+print("apa")
+5 + 5
+@epochs 100 Flux.train!(loss, ps, train_data, opt, cb = Flux.throttle(evalcb,5))
+
+#%%
+# model.layers[1:length()]
+model2 = Chain(model.layers[1:(length(model.layers)-1)]..., Action_Response(1), Action_Response(2), Last(3))
+loss(x::Game, y) = Flux.crossentropy(model2(x), y) + 0.001*sum(norm, params(model2))
+loss_no_norm(x::Game, y) = Flux.crossentropy(model2(x), y)
+loss(x::Vector{Float64}, y) = Flux.crossentropy(x, y)
+loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
+
+
+loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
+min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])
+
+
+model2(data[1][1])
+min_loss(data[1:20])
+loss(data)
+loss_no_norm(data)
+
+ps = Flux.params(model2)
+# opt = Descent(0.05)
+opt = ADAM(0.0001, (0.9, 0.999))
+# opt = Nesterov(0.001, 0.9)
+# evalcb() = @show(loss_no_norm(data), loss(data), min_loss(data))
+evalcb() = @show(loss_no_norm(train_data), loss_no_norm(test_data))
+print("apa")
+5 + 5
 @epochs 10 Flux.train!(loss, ps, train_data, opt, cb = Flux.throttle(evalcb,5))
 
+opt = ADAM(0.001, (0.9, 0.999))
+evalcb() = @show(loss_no_norm(miss_data), loss_no_norm(data))
+@epochs 30 Flux.train!(loss, ps, miss_data, opt, cb = Flux.throttle(evalcb,5))
 
+m_correct = 0
+q_correct = 0
+miss_idx = []
+# for (i, (game, play)) in enumerate(data)
+for (i, (game, play)) in enumerate(data[miss_idx])
+    println(game_names[i])
+    println(game)
+    println(play)
+    q_play = play_distribution(qlk_h, game)
+    m_play = model2(game)
+    m_correct += findmax(m_play)[2] == findmax(play)[2]
+    q_correct += findmax(q_play)[2] == findmax(play)[2]
+    # if findmax(m_play)[2] != findmax(play)[2]
+        # append!(miss_idx, i)
+    # end
+    println(play_distribution(qlk_h, game))
+    println(model2(game))
+    println("----------------")
+end
+data[miss_idx]
+
+a = []
+append!(a,1)
+m_correct
+q_correct
+
+model2.layers[length(model2.layers)-1]
+
+mh = MetaHeuristic([JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.]);
+costs = Costs(0.08, 0.1, 0.2, 2.4)
+opt_mh = fit_h!(mh, exp_games[miss_idx], actual_h, opp_h, costs; init_x = get_parameters(mh))
+opt_mh = fit_prior!(opt_mh, exp_games[miss_idx], actual_h, opp_h, costs)
+
+prediction_loss(opt_mh, exp_games[miss_idx], actual_h)
 
 ####################################################
 # %% Finding optimal costs and share 1 vs 2 players
