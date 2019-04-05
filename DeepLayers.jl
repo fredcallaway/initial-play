@@ -53,8 +53,8 @@ end
 
 # Allows us to take games directly as input. Also generates a vector with different transformations of payoff matrices
 # such as max of rows/columns.
-(m::Game_Dense)(g::Game) = m(g.row, g.col, [g.row, g.col, [mapslices(x -> f(x)*ones(length(x)), u, dims=d) for f in [maximum, mean, minimum], d in [1,2], u in [g.row, g.col]]...], g.row, g.col)
-(m::Game_Dense_full)(g::Game) = m(g.row, g.col, [g.row, g.col, [mapslices(x -> f(x)*ones(length(x)), u, dims=d) for f in [maximum, mean, minimum], d in [1,2], u in [g.row, g.col]]...], g.row, g.col)
+(m::Game_Dense)(g::Game) = m(g.row, g.col, [g.row, g.col, [min(g.row[i,j], g.col[i,j]) for i in 1:3, j in 1:3], [mapslices(x -> f(x)*ones(length(x)), u, dims=d) for f in [maximum, mean, minimum], d in [1,2], u in [g.row, g.col]]...], g.row, g.col)
+(m::Game_Dense_full)(g::Game) = m(g.row, g.col, [g.row, g.col, [min(g.row[i,j], g.col[i,j]) for i in 1:3, j in 1:3], [mapslices(x -> f(x)*ones(length(x)), u, dims=d) for f in [maximum, mean, minimum], d in [1,2], u in [g.row, g.col]]...], g.row, g.col)
 
 Game_Dense(in::Integer, out::Integer, σ = identity) = begin
   Wᴿ = param(0.2 .* randn(out, in))
@@ -67,8 +67,8 @@ end
 Game_Dense_full(in::Integer, out::Integer, σ = identity) = begin
   Wᴿ = param(0.2 .* randn(out, in))
   Wᶜ = param(0.2 .* randn(out, in))
-  WPᴿ = [param(randn(out)) for i in 1:14]
-  WPᶜ = [param(randn(out)) for i in 1:14]
+  WPᴿ = [param(randn(out)) for i in 1:15]
+  WPᶜ = [param(randn(out)) for i in 1:15]
   bᴿ = param(0.2 .* randn(out))
   bᶜ = param(0.2 .* randn(out))
   Game_Dense_full(Wᴿ, WPᴿ, Wᶜ, WPᶜ, bᴿ, bᶜ, σ)
@@ -115,7 +115,7 @@ Action_Response(level::Integer) = Action_Response(randn(level), randn(level), 3*
   λᴿ = max(0., m.λᴿ)
   λᶜ = max(0., m.λᶜ)
   aᴿ = my_softmax([sum([λᴿ * sum(Uᴿ[i,:] .* Aᶜ[l]) * vᴿ[l] for l in 1:level]) for i in 1:n_rows])
-  aᶜ = my_softmax([sum([λᶜ * sum(Aᴿ[l] .* Uᶜ[:,i]) * vᶜ[l] for l in 1:level]) for i in 1:n_rows])
+  aᶜ = my_softmax([sum([λᶜ * sum(Aᴿ[l] .* Uᶜ[:,i]) * vᶜ[l] for l in 1:level]) for i in 1:n_cols])
   return [Aᴿ..., aᴿ], [Aᶜ..., aᶜ], Uᴿ, Uᶜ
 end
 
@@ -135,7 +135,7 @@ Last(level::Integer) = Last(randn(level))
 end
 
 
-# Makes the accesible for flux functions such as params, or Chain
+# Makes the custom layers accesible for flux functions such as params, or Chain
 Flux.@treelike Game_Dense
 Flux.@treelike Game_Dense_full
 Flux.@treelike Game_Soft
