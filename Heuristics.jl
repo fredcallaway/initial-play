@@ -686,17 +686,17 @@ function expected_payoff(h::MetaHeuristic, opponent::Heuristic, g::Game, costs::
     p_outcome = p * p_opp'
     sum(p_outcome .* g.row)
 end
+# 
+# function expected_payoff(p, p_opp::Vector{Float64}, g::Game)
+#     p_outcome = p * p_opp'
+#     sum(p_outcome .* g.row)
+# end
 
-function expected_payoff(p, p_opp::Vector{Float64}, g::Game)
-    p_outcome = p * p_opp'
-    sum(p_outcome .* g.row)
-end
-
-function expected_payoff(p, opponent::Heuristic, g::Game)
-    p_opp = play_distribution(opponent, transpose(g))
-    p_outcome = p * p_opp'
-    sum(p_outcome .* g.row)
-end
+# function expected_payoff(p, opponent::Heuristic, g::Game)
+#     p_opp = play_distribution(opponent, transpose(g))
+#     p_outcome = p * p_opp'
+#     sum(p_outcome .* g.row)
+# end
 
 # TODO: prior distribution on Heuristic weights
 # - cost of deviating from prior for a specific game, kl_c * Kullback-Leibler divergence

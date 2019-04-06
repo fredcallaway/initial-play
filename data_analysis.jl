@@ -4,9 +4,9 @@ using JSON
 include("Heuristics.jl")
 
 
-df_wide_all = CSV.read("Gustav_pilot/all_apps_wide_2019-04-04.csv")
+df_wide_all = CSV.read("pilot/all_apps_wide_2019-04-06.csv")
 
-df_wide = df_wide_all[df_wide_all.participant__index_in_pages .== 255, :]
+df_wide = df_wide_all[(df_wide_all.participant__index_in_pages .== 255) .& (df.df_wide_all.session_code .== "viazupku"), :]
 
 participant_df = DataFrame()
 for row in eachrow(df_wide)
@@ -60,16 +60,17 @@ end
 positive_games_df = DataFrame()
 comparison_games = [31, 37, 41, 44, 49]
 # for treatment in ["positive", "negative"]
+df_wide_positive = df_wide[df_wide.normal_form_games_1_player_treatment .== "positive", :]
 for i in 1:50
     treat = "positive"
     dict = Dict()
-    dict[:session_code] = first(df_wide.session_code)
-    dict[:row] = first(df_wide[(df_wide.normal_form_games_1_player_treatment .== treat) .& (df_wide.normal_form_games_1_player_player_role .== "row"), Symbol("normal_form_games_"*string(i)*"_player_game")])
-    dict[:col] = first(df_wide[(df_wide.normal_form_games_1_player_treatment .== treat) .& (df_wide.normal_form_games_1_player_player_role .== "row"), Symbol("normal_form_games_"*string(i)*"_player_game")])
+    dict[:session_code] = first(df_wide_positive.session_code)
+    dict[:row] = first(df_wide_positive[(df_wide_positive.normal_form_games_1_player_treatment .== treat) .& (df_wide_positive.normal_form_games_1_player_player_role .== "row"), Symbol("normal_form_games_"*string(i)*"_player_game")])
+    dict[:col] = first(df_wide_positive[(df_wide_positive.normal_form_games_1_player_treatment .== treat) .& (df_wide_positive.normal_form_games_1_player_player_role .== "col"), Symbol("normal_form_games_"*string(i)*"_player_game")])
     dict[:round] = i
     dict[:type] = i in comparison_games ? "comparison" : "treatment"
     play_dists = Dict("row" => zeros(3), "col" => zeros(3))
-    for row in eachrow(individal_choices_df[individal_choices_df.round .== i, [:role, :choice]])
+    for row in eachrow(individal_choices_df[(individal_choices_df.round .== i) .& (individal_choices_df.treatment .== treat), [:role, :choice]])
         play_dists[row.role][row.choice+1] += 1
     end
     dict[:row_play] = JSON.json((play_dists["row"]/sum(play_dists["row"])))
@@ -82,6 +83,33 @@ for i in 1:50
     end
 end
 
-CSV.write("Gustav_pilot/dataframes/participant_df.csv", participant_df)
-CSV.write("Gustav_pilot/dataframes/individal_choices_df.csv", individal_choices_df)
-CSV.write("Gustav_pilot/dataframes/positive_games_df.csv", positive_games_df)
+negative_games_df = DataFrame()
+comparison_games = [31, 37, 41, 44, 49]
+df_wide_negative = df_wide[df_wide.normal_form_games_1_player_treatment .== "negative", :]
+# for treatment in ["positive", "negative"]
+for i in 1:50
+    treat = "negative"
+    dict = Dict()
+    dict[:session_code] = first(df_wide_negative.session_code)
+    dict[:row] = first(df_wide_negative[(df_wide_negative.normal_form_games_1_player_treatment .== treat) .& (df_wide_negative.normal_form_games_1_player_player_role .== "row"), Symbol("normal_form_games_"*string(i)*"_player_game")])
+    dict[:col] = first(df_wide_negative[(df_wide_negative.normal_form_games_1_player_treatment .== treat) .& (df_wide_negative.normal_form_games_1_player_player_role .== "col"), Symbol("normal_form_games_"*string(i)*"_player_game")])
+    dict[:round] = i
+    dict[:type] = i in comparison_games ? "comparison" : "treatment"
+    play_dists = Dict("row" => zeros(3), "col" => zeros(3))
+    for row in eachrow(individal_choices_df[(individal_choices_df.round .== i) .& (individal_choices_df.treatment .== treat), [:role, :choice]])
+        play_dists[row.role][row.choice+1] += 1
+    end
+    dict[:row_play] = JSON.json((play_dists["row"]/sum(play_dists["row"])))
+    dict[:col_play] = JSON.json(play_dists["col"]/sum(play_dists["col"]))
+    dict
+    if length(names(negative_games_df)) == 0
+        negative_games_df = DataFrame(dict)
+    elseif length(negative_games_df[negative_games_df.round .== i, :round]) == 0
+        push!(negative_games_df, dict)
+    end
+end
+
+CSV.write("pilot/dataframes/participant_df.csv", participant_df)
+CSV.write("pilot/dataframes/individal_choices_df.csv", individal_choices_df)
+CSV.write("pilot/dataframes/positive_games_df.csv", positive_games_df)
+CSV.write("pilot/dataframes/negative_games_df.csv", negative_games_df)

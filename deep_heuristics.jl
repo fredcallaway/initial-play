@@ -201,68 +201,71 @@ function json_to_game(s)
     row_g = Game(row, col)
 end
 
-particapant_df = CSV.read("Gustav_pilot/dataframes/participant_df.csv")
-individal_choices_df = CSV.read("Gustav_pilot/dataframes/individal_choices_df.csv")
-positive_games_df = CSV.read("Gustav_pilot/dataframes/positive_games_df.csv")
+particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
+individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
+positive_games_df = CSV.read("pilot/dataframes/positive_games_df.csv")
+negative_games_df = CSV.read("pilot/dataframes/negative_games_df.csv")
+
 
 comparison_idx = [31, 37, 41, 44, 49]
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx..., later_com...]
 
-pilot_data = [(json_to_game(first(positive_games_df[positive_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :row_play])))) for i in 1:50];
-println(pilot_data[1])
-append!(pilot_data ,[(transpose(json_to_game(first(positive_games_df[positive_games_df.round .== i, :col]))), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :col_play])))) for i in 1:50]);
+pilot_pos_data = [(json_to_game(first(positive_games_df[positive_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :row_play])))) for i in 1:50];
+println(pilot_pos_data[1])
+append!(pilot_pos_data ,[(transpose(json_to_game(first(positive_games_df[positive_games_df.round .== i, :col]))), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :col_play])))) for i in 1:50]);
 
-pilot_games = [d[1] for d in pilot_data];
-pilot_row_plays = [d[2] for d in pilot_data];
-pilot_col_plays = [pilot_row_plays[51:100]..., pilot_row_plays[1:50]...]
+pilot_pos_games = [d[1] for d in pilot_pos_data];
+pilot_pos_row_plays = [d[2] for d in pilot_pos_data];
+pilot_pos_col_plays = [pilot_pos_row_plays[51:100]..., pilot_pos_row_plays[1:50]...]
 
 
-# pilot_n_train = 70
-# pilot_train_idxs = sample(1:length(pilot_games), pilot_n_train; replace=false)
-# pilot_test_idxs = setdiff(1:length(pilot_games), pilot_train_idxs)
-pilot_train_idxs = setdiff(1:length(pilot_games), comparison_idx)
-pilot_test_idxs = comparison_idx
-sort!(pilot_train_idxs)
-sort!(pilot_test_idxs)
-pilot_train_games = pilot_games[pilot_train_idxs];
-pilot_test_games = pilot_games[pilot_test_idxs];
-pilot_train_row = pilot_row_plays[pilot_train_idxs]
-pilot_test_row = pilot_row_plays[pilot_test_idxs]
-pilot_train_data = pilot_data[pilot_train_idxs];
-pilot_test_data = pilot_data[pilot_test_idxs];
+# pilot_pos_n_train = 70
+# pilot_pos_train_idxs = sample(1:length(pilot_pos_games), pilot_pos_n_train; replace=false)
+# pilot_pos_test_idxs = setdiff(1:length(pilot_pos_games), pilot_pos_train_idxs)
+pilot_pos_train_idxs = setdiff(1:length(pilot_pos_games), comparison_idx)
+pilot_pos_test_idxs = comparison_idx
+sort!(pilot_pos_train_idxs)
+sort!(pilot_pos_test_idxs)
+pilot_pos_train_games = pilot_pos_games[pilot_pos_train_idxs];
+pilot_pos_test_games = pilot_pos_games[pilot_pos_test_idxs];
+pilot_pos_train_row = pilot_pos_row_plays[pilot_pos_train_idxs]
+pilot_pos_test_row = pilot_pos_row_plays[pilot_pos_test_idxs]
+pilot_pos_train_data = pilot_pos_data[pilot_pos_train_idxs];
+pilot_pos_test_data = pilot_pos_data[pilot_pos_test_idxs];
 
 
 ####################################################
 #%% QLK Pilot
 ####################################################
-actual_h = CacheHeuristic(pilot_games, pilot_row_plays)
-pilot_opp_h = CacheHeuristic(pilot_games, pilot_col_plays)
-# actual_h_test = CacheHeuristic(pilot_test_games, [play_distribution(mh, g) for g in pilot_test_games])
+pos_actual_h = CacheHeuristic(pilot_pos_games, pilot_pos_row_plays)
+pilot_pos_opp_h = CacheHeuristic(transpose.(pilot_pos_games), pilot_pos_col_plays)
+# pos_actual_h_test = CacheHeuristic(pilot_pos_test_games, [play_distribution(mh, g) for g in pilot_pos_test_games])
 qlk_h = QLK(0.07, 0.64, 2.3)
-best_fit_qlk = fit_h!(qlk_h, pilot_games, actual_h)
-# best_fit_qlk = fit_h!(qlk_h, pilot_games[comparison_idx], actual_h)
-# prediction_loss(qlk_h, pilot_games[comparison_idx], actual_h)
-prediction_loss(qlk_h, pilot_games, actual_h)
-best_fit_qlk = fit_h!(qlk_h, pilot_train_games, actual_h)
-@show prediction_loss(qlk_h, pilot_train_games, actual_h);
-@show prediction_loss(qlk_h, pilot_test_games, actual_h);
+best_fit_qlk = fit_h!(qlk_h, pilot_pos_games, pos_actual_h)
+# best_fit_qlk = fit_h!(qlk_h, pilot_pos_games[comparison_idx], pos_actual_h)
+# prediction_loss(qlk_h, pilot_pos_games[comparison_idx], pos_actual_h)
+prediction_loss(qlk_h, pilot_pos_games, pos_actual_h)
+best_fit_qlk = fit_h!(qlk_h, pilot_pos_train_games, pos_actual_h)
+@show prediction_loss(qlk_h, pilot_pos_train_games, pos_actual_h);
+@show prediction_loss(qlk_h, pilot_pos_test_games, pos_actual_h);
 
-@show prediction_loss(qlk_h, pilot_games[comparison_idx], actual_h)
+@show prediction_loss(qlk_h, pilot_pos_games[comparison_idx], pos_actual_h)
 
 ####################################################
 #%% QLK Pilot
 ####################################################
 qch_h = QCH(0.07, 0.64, 1.5, 1.7, 1.9)
-best_fit_qch = fit_h!(qch_h, pilot_games, actual_h)
-# best_fit_qch = fit_h!(qch_h, pilot_games[comparison_idx], actual_h)
-# prediction_loss(qch_h, pilot_games[comparison_idx], actual_h)
-prediction_loss(qch_h, pilot_games, actual_h)
-best_fit_qch = fit_h!(qch_h, pilot_train_games, actual_h)
-@show prediction_loss(qch_h, pilot_train_games, actual_h);
-@show prediction_loss(qch_h, pilot_test_games, actual_h);
+best_fit_qch = fit_h!(qch_h, pilot_pos_games, pos_actual_h)
+# best_fit_qch = fit_h!(qch_h, pilot_pos_games[comparison_idx], pos_actual_h)
+# prediction_loss(qch_h, pilot_pos_games[comparison_idx], pos_actual_h)
+prediction_loss(qch_h, pilot_pos_games, pos_actual_h)
 
-@show prediction_loss(qch_h, pilot_games[comparison_idx], actual_h)
+best_fit_qch = fit_h!(qch_h, pilot_pos_train_games, pos_actual_h)
+@show prediction_loss(qch_h, pilot_pos_train_games, pos_actual_h);
+@show prediction_loss(qch_h, pilot_pos_test_games, pos_actual_h);
+
+@show prediction_loss(qch_h, pilot_pos_games[comparison_idx], pos_actual_h)
 
 
 ####################################################
@@ -270,19 +273,19 @@ best_fit_qch = fit_h!(qch_h, pilot_train_games, actual_h)
 ####################################################
 mh = MetaHeuristic([JointMax(1.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(0., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
 
-costs = Costs(0.1, 0.25, 0.6, 4.5)
+costs = Costs(0.7, 0.1, 0.2, 2.5)
 opt_mh = mh
-opt_mh = fit_prior!(opt_mh, pilot_train_games, actual_h, pilot_opp_h, costs)
-opt_mh = fit_h!(mh, pilot_train_games, actual_h, pilot_opp_h, costs; init_x = get_parameters(mh))
-opt_mh = opt_prior!(opt_mh, pilot_train_games, pilot_opp_h, costs)
-opt_mh = optimize_h!(opt_mh, pilot_train_games, pilot_opp_h, costs)
+opt_mh = fit_prior!(opt_mh, pilot_pos_train_games, pos_actual_h, pilot_pos_opp_h, costs)
+opt_mh = fit_h!(mh, pilot_pos_train_games, pos_actual_h, pilot_pos_opp_h, costs; init_x = get_parameters(mh))
+opt_mh = opt_prior!(opt_mh, pilot_pos_train_games, pilot_pos_opp_h, costs)
+opt_mh = optimize_h!(opt_mh, pilot_pos_train_games, pilot_pos_opp_h, costs)
 
-prediction_loss(opt_mh, pilot_games, actual_h)
-prediction_loss(opt_mh, pilot_train_games, actual_h)
-prediction_loss(opt_mh, pilot_test_games, actual_h)
-prediction_loss(opt_mh, pilot_games[comparison_idx], actual_h)
+prediction_loss(opt_mh, pilot_pos_games, pos_actual_h)
+prediction_loss(opt_mh, pilot_pos_train_games, pos_actual_h)
+prediction_loss(opt_mh, pilot_pos_test_games, pos_actual_h)
+prediction_loss(opt_mh, pilot_pos_games[comparison_idx], pos_actual_h)
 
-h_dists = [h_distribution(opt_mh, g, pilot_opp_h, costs) for g in games]
+h_dists = [h_distribution(opt_mh, g, pilot_pos_opp_h, costs) for g in pilot_pos_games]
 avg_h_dist = mean(h_dists)
 
 ####################################################
@@ -299,10 +302,10 @@ loss_no_norm(x::Game, y) = Flux.crossentropy(model_0(x), y)
 #%% estimate
 ps = Flux.params(model_0)
 opt = ADAM(0.001, (0.9, 0.999))
-evalcb() = @show(rand_loss(pilot_train_data), loss_no_norm(pilot_train_data), min_loss(pilot_train_data), rand_loss(pilot_test_data), loss_no_norm(pilot_test_data), min_loss(pilot_test_data))
+evalcb() = @show(rand_loss(pilot_pos_train_data), loss_no_norm(pilot_pos_train_data), min_loss(pilot_pos_train_data), rand_loss(pilot_pos_test_data), loss_no_norm(pilot_pos_test_data), min_loss(pilot_pos_test_data))
 println("clear print are")
 5
-@epochs 20 Flux.train!(loss, ps, pilot_train_data, opt, cb = Flux.throttle(evalcb,5))
+@epochs 20 Flux.train!(loss, ps, pilot_pos_train_data, opt, cb = Flux.throttle(evalcb,5))
 
 ####################################################
 #%% Add action response layers
@@ -311,16 +314,16 @@ model_action = deepcopy(Chain(model_0.layers[1:(length(model_0.layers)-1)]..., A
 loss(x::Game, y) = Flux.crossentropy(model_action(x), y) + γ*sum(norm, params(model_action))
 loss_no_norm(x::Game, y) = Flux.crossentropy(model_action(x), y)
 
-loss_no_norm(pilot_data[comparison_idx])
-loss_no_norm(pilot_data)
+loss_no_norm(pilot_pos_data[comparison_idx])
+loss_no_norm(pilot_pos_data)
 #%% Estimate with action response layers
 ps = Flux.params(model_action)
 opt = ADAM(0.0001, (0.9, 0.999))
 5
-evalcb() = @show(rand_loss(pilot_train_data), loss_no_norm(pilot_train_data), min_loss(pilot_train_data), rand_loss(pilot_test_data), loss_no_norm(pilot_test_data), min_loss(pilot_test_data))
+evalcb() = @show(rand_loss(pilot_pos_train_data), loss_no_norm(pilot_pos_train_data), min_loss(pilot_pos_train_data), rand_loss(pilot_pos_test_data), loss_no_norm(pilot_pos_test_data), min_loss(pilot_pos_test_data))
 println("apa")
 4
-@epochs 100 Flux.train!(loss, ps, pilot_train_data, opt, cb = Flux.throttle(evalcb,5))
+@epochs 100 Flux.train!(loss, ps, pilot_pos_train_data, opt, cb = Flux.throttle(evalcb,5))
 
 
 ####################################################
@@ -330,7 +333,7 @@ m_correct = 0
 q_correct = 0
 miss_idx = []
 
-for (i, (game, play)) in enumerate(pilot_data)
+for (i, (game, play)) in enumerate(pilot_pos_data)
     # println(game_names[i])
     println(i)
     println(game)
@@ -349,16 +352,16 @@ end
 println(m_correct)
 println(q_correct)
 
-miss_games = pilot_games[miss_idx];
-miss_plays = pilot_row_plays[miss_idx];
-best_fit_qlk = fit_h!(qlk_h, miss_games, actual_h)
-prediction_loss(qlk_h, miss_games, actual_h)
+miss_games = pilot_pos_games[miss_idx];
+miss_plays = pilot_pos_row_plays[miss_idx];
+best_fit_qlk = fit_h!(qlk_h, miss_games, pos_actual_h)
+prediction_loss(qlk_h, miss_games, pos_actual_h)
 
 for i in miss_idx
     println(i)
-    println(pilot_data[i][1])
-    println(pilot_data[i][2])
-    println(model_action(pilot_data[i][1]))
+    println(pilot_pos_data[i][1])
+    println(pilot_pos_data[i][2])
+    println(model_action(pilot_pos_data[i][1]))
 end
 
 
@@ -375,32 +378,247 @@ model = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50),
 # loss(x::Game, y) = Flux.crossentropy(model_0(x), y) + γ*sum(norm, params(model_0))
 loss(x::Game, y) = begin
     pred_play = model(x)
-    -expected_payoff(pred_play, pilot_opp_h, x) + γ*sum(norm, params(model)) + sim_cost*my_softmax(model.layers[end].v)[2] + exact_cost/Flux.crossentropy(pred_play,pred_play)
+    -expected_payoff(pred_play, pilot_pos_opp_h, x) + γ*sum(norm, params(model)) + sim_cost*my_softmax(model.layers[end].v)[2] + exact_cost/Flux.crossentropy(pred_play,pred_play)
 end
-loss_no_cost(x::Game, y) = -expected_payoff(model(x), pilot_opp_h, x)
+loss_no_cost(x::Game, y) = -expected_payoff(model(x), pilot_pos_opp_h, x)
 loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
 loss_no_cost(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_cost(g,y) for (g,y) in data])/length(data)
-# loss(pilot_data[1][1], pilot_data[1][2])
+# loss(pilot_pos_data[1][1], pilot_pos_data[1][2])
 
 
 
-loss(pilot_data)
-loss_no_cost(pilot_data)
-loss_no_norm(pilot_data)
+loss(pilot_pos_data)
+loss_no_cost(pilot_pos_data)
+loss_no_norm(pilot_pos_data)
 
 gid = 35
-pilot_data[gid][2]
-model_action(pilot_data[gid][1])
-model(pilot_data[gid][1])
-Flux.crossentropy(model(pilot_data[20][1]), model(pilot_data[20][1]))
+pilot_pos_data[gid][2]
+model_action(pilot_pos_data[gid][1])
+model(pilot_pos_data[gid][1])
+Flux.crossentropy(model(pilot_pos_data[20][1]), model(pilot_pos_data[20][1]))
 Flux.crossentropy(ones(3)/3, ones(3)/3)
 
 # softmax(model.layers[end].v)
 #%% estimate
 ps = Flux.params(model)
 opt = ADAM(0.001, (0.9, 0.999))
-# evalcb() = @show(loss(pilot_data), rand_loss(pilot_train_data), loss_no_norm(pilot_train_data), min_loss(pilot_train_data), rand_loss(pilot_test_data), loss_no_norm(pilot_test_data), min_loss(pilot_test_data))
-evalcb() = @show(loss(pilot_data), loss_no_cost(pilot_data), loss_no_norm(pilot_data), min_loss(pilot_data), loss_no_norm(pilot_test_data))
+# evalcb() = @show(loss(pilot_pos_data), rand_loss(pilot_pos_train_data), loss_no_norm(pilot_pos_train_data), min_loss(pilot_pos_train_data), rand_loss(pilot_pos_test_data), loss_no_norm(pilot_pos_test_data), min_loss(pilot_pos_test_data))
+evalcb() = @show(loss(pilot_pos_data), loss_no_cost(pilot_pos_data), loss_no_norm(pilot_pos_data), min_loss(pilot_pos_data), loss_no_norm(pilot_pos_test_data))
 println("clear print are")
 5
-@epochs 10 Flux.train!(loss, ps, pilot_data, opt, cb = Flux.throttle(evalcb,5))
+@epochs 10 Flux.train!(loss, ps, pilot_pos_data, opt, cb = Flux.throttle(evalcb,5))
+
+###################################################
+#%% Negative stuff
+##################################################
+
+comparison_idx = [31, 37, 41, 44, 49]
+later_com = 50 .+ comparison_idx
+comparison_idx = [comparison_idx..., later_com...]
+
+pilot_neg_data = [(json_to_game(first(negative_games_df[negative_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(negative_games_df[negative_games_df.round .== i, :row_play])))) for i in 1:50];
+println(pilot_neg_data[1])
+append!(pilot_neg_data ,[(transpose(json_to_game(first(negative_games_df[negative_games_df.round .== i, :col]))), convert(Vector{Float64}, JSON.parse(first(negative_games_df[negative_games_df.round .== i, :col_play])))) for i in 1:50]);
+
+pilot_neg_games = [d[1] for d in pilot_neg_data];
+pilot_neg_row_plays = [d[2] for d in pilot_neg_data];
+pilot_neg_col_plays = [pilot_neg_row_plays[51:100]..., pilot_neg_row_plays[1:50]...]
+
+
+# pilot_neg_n_train = 70
+# pilot_neg_train_idxs = sample(1:length(pilot_neg_games), pilot_neg_n_train; replace=false)
+# pilot_neg_test_idxs = setdiff(1:length(pilot_neg_games), pilot_neg_train_idxs)
+pilot_neg_train_idxs = setdiff(1:length(pilot_neg_games), comparison_idx)
+pilot_neg_test_idxs = comparison_idx
+sort!(pilot_neg_train_idxs)
+sort!(pilot_neg_test_idxs)
+pilot_neg_train_games = pilot_neg_games[pilot_neg_train_idxs];
+pilot_neg_test_games = pilot_neg_games[pilot_neg_test_idxs];
+pilot_neg_train_row = pilot_neg_row_plays[pilot_neg_train_idxs]
+pilot_neg_test_row = pilot_neg_row_plays[pilot_neg_test_idxs]
+pilot_neg_train_data = pilot_neg_data[pilot_neg_train_idxs];
+pilot_neg_test_data = pilot_neg_data[pilot_neg_test_idxs];
+
+
+####################################################
+#%% QLK Pilot
+####################################################
+pilot_neg_actual_h = CacheHeuristic(pilot_neg_games, pilot_neg_row_plays)
+pilot_neg_opp_h = CacheHeuristic(pilot_neg_games, pilot_neg_col_plays)
+# pilot_neg_actual_h_test = CacheHeuristic(pilot_neg_test_games, [play_distribution(mh, g) for g in pilot_neg_test_games])
+qlk_h = QLK(0.07, 0.64, 2.3)
+best_fit_qlk = fit_h!(qlk_h, pilot_neg_games, pilot_neg_actual_h)
+# best_fit_qlk = fit_h!(qlk_h, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+# prediction_loss(qlk_h, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+prediction_loss(qlk_h, pilot_neg_games, pilot_neg_actual_h)
+best_fit_qlk = fit_h!(qlk_h, pilot_neg_train_games, pilot_neg_actual_h)
+@show prediction_loss(qlk_h, pilot_neg_train_games, pilot_neg_actual_h);
+@show prediction_loss(qlk_h, pilot_neg_test_games, pilot_neg_actual_h);
+
+@show prediction_loss(qlk_h, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+
+####################################################
+#%% QLK Pilot
+####################################################
+qch_h = QCH(0.07, 0.64, 1.5, 1.7, 1.9)
+best_fit_qch = fit_h!(qch_h, pilot_neg_games, pilot_neg_actual_h)
+# best_fit_qch = fit_h!(qch_h, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+# prediction_loss(qch_h, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+prediction_loss(qch_h, pilot_neg_games, pilot_neg_actual_h)
+best_fit_qch = fit_h!(qch_h, pilot_neg_train_games, pilot_neg_actual_h)
+@show prediction_loss(qch_h, pilot_neg_train_games, pilot_neg_actual_h);
+@show prediction_loss(qch_h, pilot_neg_test_games, pilot_neg_actual_h);
+
+@show prediction_loss(qch_h, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+
+
+####################################################
+#%% MetaHeuristic Pilot
+####################################################
+mh = MetaHeuristic([JointMax(1.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(0., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
+
+costs = Costs(0.7, 0.1, 0.2, 2.5)
+opt_mh = mh
+opt_mh = fit_prior!(opt_mh, pilot_neg_train_games, pilot_neg_actual_h, pilot_neg_opp_h, costs)
+opt_mh = fit_h!(mh, pilot_neg_train_games, pilot_neg_actual_h, pilot_neg_opp_h, costs; init_x = get_parameters(mh))
+opt_mh = opt_prior!(opt_mh, pilot_neg_train_games, pilot_neg_opp_h, costs)
+opt_mh = optimize_h!(opt_mh, pilot_neg_train_games, pilot_neg_opp_h, costs)
+
+prediction_loss(opt_mh, pilot_neg_games, pilot_neg_actual_h)
+prediction_loss(opt_mh, pilot_neg_train_games, pilot_neg_actual_h)
+prediction_loss(opt_mh, pilot_neg_test_games, pilot_neg_actual_h)
+prediction_loss(opt_mh, pilot_neg_games[comparison_idx], pilot_neg_actual_h)
+
+h_dists = [h_distribution(opt_mh, g, pilot_neg_opp_h, costs) for g in pilot_neg_games]
+avg_h_dist = mean(h_dists)
+
+####################################################
+#%% Pilot Setup and run Deep Heuristic without action response
+####################################################
+γ = 0.001 # Overfitting penalty
+# model_0 = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50, sigmoid), Game_Dense(50,30), Game_Soft(30), Last(1))
+model_0 = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Last(1))
+# model_0 = Chain(Game_Dense(1, 30, sigmoid), Game_Dense(30, 30, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
+
+loss(x::Game, y) = Flux.crossentropy(model_0(x), y) + γ*sum(norm, params(model_0))
+loss_no_norm(x::Game, y) = Flux.crossentropy(model_0(x), y)
+
+#%% estimate
+ps = Flux.params(model_0)
+opt = ADAM(0.001, (0.9, 0.999))
+evalcb() = @show(rand_loss(pilot_neg_train_data), loss_no_norm(pilot_neg_train_data), min_loss(pilot_neg_train_data), rand_loss(pilot_neg_test_data), loss_no_norm(pilot_neg_test_data), min_loss(pilot_neg_test_data))
+println("clear print are")
+5
+@epochs 20 Flux.train!(loss, ps, pilot_neg_train_data, opt, cb = Flux.throttle(evalcb,5))
+
+####################################################
+#%% Add action response layers
+####################################################
+model_action = deepcopy(Chain(model_0.layers[1:(length(model_0.layers)-1)]..., Action_Response(1), Last(2)))
+loss(x::Game, y) = Flux.crossentropy(model_action(x), y) + γ*sum(norm, params(model_action))
+loss_no_norm(x::Game, y) = Flux.crossentropy(model_action(x), y)
+
+loss_no_norm(pilot_neg_data[comparison_idx])
+loss_no_norm(pilot_neg_data)
+#%% Estimate with action response layers
+ps = Flux.params(model_action)
+opt = ADAM(0.0001, (0.9, 0.999))
+5
+evalcb() = @show(rand_loss(pilot_neg_train_data), loss_no_norm(pilot_neg_train_data), min_loss(pilot_neg_train_data), rand_loss(pilot_neg_test_data), loss_no_norm(pilot_neg_test_data), min_loss(pilot_neg_test_data))
+println("apa")
+4
+@epochs 100 Flux.train!(loss, ps, pilot_neg_train_data, opt, cb = Flux.throttle(evalcb,5))
+
+
+####################################################
+#%% Inspect perfomance on individual games
+####################################################
+m_correct = 0
+q_correct = 0
+miss_idx = []
+
+for (i, (game, play)) in enumerate(pilot_neg_data)
+    # println(game_names[i])
+    println(i)
+    println(game)
+    println(play)
+    q_play = play_distribution(qlk_h, game)
+    m_play = model_action(game)
+    m_correct += findmax(m_play)[2] == findmax(play)[2]
+    q_correct += findmax(q_play)[2] == findmax(play)[2]
+    if findmax(m_play)[2] != findmax(play)[2]
+        append!(miss_idx, i)
+    end
+    println(play_distribution(qlk_h, game))
+    println(model_action(game))
+    println("----------------")
+end
+println(m_correct)
+println(q_correct)
+
+miss_games = pilot_neg_games[miss_idx];
+miss_plays = pilot_neg_row_plays[miss_idx];
+best_fit_qlk = fit_h!(qlk_h, miss_games, pilot_neg_actual_h)
+prediction_loss(qlk_h, miss_games, pilot_neg_actual_h)
+
+for i in miss_idx
+    println(i)
+    println(pilot_neg_data[i][1])
+    println(pilot_neg_data[i][2])
+    println(model_action(pilot_neg_data[i][1]))
+end
+
+
+####################################################
+#%% Pilot optimal Depp heuristic
+####################################################
+γ = 0.001 # Overfitting penalty
+sim_cost = 0.1
+exact_cost = 0.8
+# model_0 = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50, sigmoid), Game_Dense(50,30), Game_Soft(30), Last(1))
+model = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
+# model_0 = Chain(Game_Dense(1, 30, sigmoid), Game_Dense(30, 30, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
+
+# loss(x::Game, y) = Flux.crossentropy(model_0(x), y) + γ*sum(norm, params(model_0))
+loss(x::Game, y) = begin
+    pred_play = model(x)
+    -expected_payoff(pred_play, pilot_neg_opp_h, x) + γ*sum(norm, params(model)) + sim_cost*my_softmax(model.layers[end].v)[2] + exact_cost/Flux.crossentropy(pred_play,pred_play)
+end
+loss_no_cost(x::Game, y) = -expected_payoff(model(x), pilot_neg_opp_h, x)
+loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
+loss_no_cost(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_cost(g,y) for (g,y) in data])/length(data)
+# loss(pilot_neg_data[1][1], pilot_neg_data[1][2])
+
+
+
+loss(pilot_neg_data)
+loss_no_cost(pilot_neg_data)
+loss_no_norm(pilot_neg_data)
+
+gid = 35
+pilot_neg_data[gid][2]
+model_action(pilot_neg_data[gid][1])
+model(pilot_neg_data[gid][1])
+Flux.crossentropy(model(pilot_neg_data[20][1]), model(pilot_neg_data[20][1]))
+Flux.crossentropy(ones(3)/3, ones(3)/3)
+
+# softmax(model.layers[end].v)
+#%% estimate
+ps = Flux.params(model)
+opt = ADAM(0.001, (0.9, 0.999))
+# evalcb() = @show(loss(pilot_neg_data), rand_loss(pilot_neg_train_data), loss_no_norm(pilot_neg_train_data), min_loss(pilot_neg_train_data), rand_loss(pilot_neg_test_data), loss_no_norm(pilot_neg_test_data), min_loss(pilot_neg_test_data))
+evalcb() = @show(loss(pilot_neg_data), loss_no_cost(pilot_neg_data), loss_no_norm(pilot_neg_data), min_loss(pilot_neg_data), loss_no_norm(pilot_neg_test_data))
+println("clear print are")
+5
+@epochs 10 Flux.train!(loss, ps, pilot_neg_data, opt, cb = Flux.throttle(evalcb,5))
+
+
+####################################################
+#%% Pilot compare comparison games
+####################################################
+for i in comparison_idx
+    println(pilot_pos_games[i])
+    println("positive:", pilot_pos_row_plays[i])
+    println("negative:", pilot_neg_row_plays[i])
+    println("-----------------------------------")
+end

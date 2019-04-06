@@ -198,7 +198,7 @@ q_correct
 model2.layers[length(model2.layers)-1]
 
 mh = MetaHeuristic([JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(-0.2, 1.), RowHeuristic(-0.2, 2.)])], [0., 0., 0., 0., 0., 0., 0.]);
-costs = Costs(0.08, 0.13, 0.2, 2.4)
+costs = Costs(0.08, 0.1, 0.2, 2.4)
 opt_mh = fit_h!(mh, exp_games[miss_idx], actual_h, opp_h, costs; init_x = get_parameters(mh))
 opt_mh = fit_prior!(opt_mh, exp_games[miss_idx], actual_h, opp_h, costs)
 
