@@ -213,7 +213,7 @@ comparison_idx = [comparison_idx..., later_com...]
 
 pilot_pos_data = [(json_to_game(first(positive_games_df[positive_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :row_play])))) for i in 1:50];
 println(pilot_pos_data[1])
-append!(pilot_pos_data ,[(transpose(json_to_game(first(positive_games_df[positive_games_df.round .== i, :col]))), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :col_play])))) for i in 1:50]);
+append!(pilot_pos_data ,[(json_to_game(first(positive_games_df[positive_games_df.round .== i, :col]))), convert(Vector{Float64}, JSON.parse(first(positive_games_df[positive_games_df.round .== i, :col_play])))) for i in 1:50]);
 
 pilot_pos_games = [d[1] for d in pilot_pos_data];
 pilot_pos_row_plays = [d[2] for d in pilot_pos_data];

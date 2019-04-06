@@ -6,7 +6,7 @@ include("Heuristics.jl")
 
 df_wide_all = CSV.read("pilot/all_apps_wide_2019-04-06.csv")
 
-df_wide = df_wide_all[(df_wide_all.participant__index_in_pages .== 255) .& (df.df_wide_all.session_code .== "viazupku"), :]
+df_wide = df_wide_all[(df_wide_all.participant__index_in_pages .== 255) .& (df_wide_all.session_code .== "viazupku"), :]
 
 participant_df = DataFrame()
 for row in eachrow(df_wide)
