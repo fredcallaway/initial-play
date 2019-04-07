@@ -49,6 +49,7 @@ end
 #%% General loss functions
 loss(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.01)./1.03, (y .+ 0.01)./1.03) : Flux.crossentropy(x, y)
 rand_loss(y) = Flux.crossentropy(ones(length(y))/length(y), y)
+
 loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
 loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
 min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])/length(data)
@@ -109,10 +110,11 @@ best_fit_qch_pos = fit_h!(pos_qch_h, pilot_pos_train_games, pos_actual_h)
 ####################################################
 #%% Positive Treatment: MetaHeuristic
 ####################################################
-mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
+# mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
+mh_pos = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 
 # costs = Costs(0.08, 0.15, 0.07, 1.5)
-costs = Costs(0.07, 0.1, 0.2, 3.)
+costs = Costs(0.1, 0.1, 0.2, 1.5)
 
 fit_mh_pos = deepcopy(mh_pos)
 fit_mh_pos = fit_prior!(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
@@ -128,7 +130,7 @@ min_loss(pilot_pos_data[comparison_idx])
 h_dists = [h_distribution(fit_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist = mean(h_dists)
 
-costs = Costs(0.06, 0.1, 0.04, 1.)
+
 opt_mh_pos = deepcopy(mh_pos)
 # for i in 1:5
 opt_mh_pos = opt_prior!(opt_mh_pos, pilot_pos_train_games, pos_actual_h, costs)
@@ -276,10 +278,11 @@ min_loss(pilot_neg_data[comparison_idx])
 ####################################################
 #%% Negative Treatment: MetaHeuristic
 ####################################################
-mh_neg = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(0., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
+# mh_neg = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(0., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
+mh_neg = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(0., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 
-costs = Costs(0.03, 0.15, 0.3, 1.5)
-# costs = Costs(0.07, 0.1, 0.2, 1.)
+# costs = Costs(0.03, 0.15, 0.3, 1.5)
+costs = Costs(0.1, 0.1, 0.3, 1.5)
 
 fit_mh_neg = deepcopy(mh_neg)
 fit_mh_neg = fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
@@ -421,7 +424,7 @@ println("clear print are")
 
 println("------- QCH ----------")
 println("Neg QCH: ", best_fit_qch_neg)
-println("Pos QCH: ", best_fit_qch_neg)
+println("Pos QCH: ", best_fit_qch_p)
 println("neg on neg: ", prediction_loss(best_fit_qch_neg, pilot_neg_games, neg_actual_h))
 println("pos on neg: ", prediction_loss(best_fit_qch_pos, pilot_neg_games, neg_actual_h))
 println("neg on neg comp: ", prediction_loss(best_fit_qch_neg, pilot_neg_games[comparison_idx], neg_actual_h))
