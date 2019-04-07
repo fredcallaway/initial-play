@@ -121,6 +121,12 @@ function expected_payoff(h::Heuristic, opponent::Heuristic, g::Game)
     sum(p_outcome .* g.row)
 end
 
+function expected_payoff(p, opponent::Heuristic, g::Game)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
 mutable struct Costs
     α::Float64
     λ::Float64
@@ -681,7 +687,7 @@ function set_parameters!(mh::MetaHeuristic, x::Vector{T} where T <: Real)
 end
 
 function expected_payoff(h::MetaHeuristic, opponent::Heuristic, g::Game, costs::Costs)
-    p = play_distribution(h, g, opp_h, costs)
+    p = play_distribution(h, g, opponent, costs)
     p_opp = play_distribution(opponent, transpose(g))
     p_outcome = p * p_opp'
     sum(p_outcome .* g.row)
