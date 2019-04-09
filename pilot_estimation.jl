@@ -112,37 +112,39 @@ best_fit_qch_pos = fit_h!(pos_qch_h, pilot_pos_train_games, pos_actual_h)
 ####################################################
 # mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
 mh_pos = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
-
+n_fit_iter = 5
 # costs = Costs(0.08, 0.15, 0.07, 1.5)
 costs = Costs(0.1, 0.1, 0.2, 1.5)
 
 fit_mh_pos = deepcopy(mh_pos)
-fit_mh_pos = fit_prior!(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
-fit_mh_pos = fit_h!(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs; init_x = get_parameters(fit_mh_pos))
+for i in 1:n_fit_iter
+    fit_mh_pos = fit_prior!(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
+    fit_mh_pos = fit_h!(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs; init_x = get_parameters(fit_mh_pos))
+end
 
-prediction_loss(fit_mh_pos, pilot_pos_games, pos_actual_h)
+prediction_loss(fit_mh_pos, pilot_pos_games, pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_data)
-prediction_loss(fit_mh_pos, pilot_pos_train_games, pos_actual_h)
-prediction_loss(fit_mh_pos, pilot_pos_test_games, pos_actual_h)
+prediction_loss(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
+prediction_loss(fit_mh_pos, pilot_pos_test_games, pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_test_data)
-prediction_loss(fit_mh_pos, pilot_pos_games[comparison_idx], pos_actual_h)
+prediction_loss(fit_mh_pos, pilot_pos_games[comparison_idx], pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_data[comparison_idx])
 h_dists = [h_distribution(fit_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist = mean(h_dists)
 
 
 opt_mh_pos = deepcopy(mh_pos)
-# for i in 1:5
-opt_mh_pos = opt_prior!(opt_mh_pos, pilot_pos_train_games, pos_actual_h, costs)
-opt_mh_pos = optimize_h!(opt_mh_pos, pilot_pos_train_games, pos_actual_h, costs)
-# end
+for i in 1:n_fit_iter
+    opt_mh_pos = opt_prior!(opt_mh_pos, pilot_pos_train_games, pos_actual_h, costs)
+    opt_mh_pos = optimize_h!(opt_mh_pos, pilot_pos_train_games, pos_actual_h, costs)
+end
 
-prediction_loss(opt_mh_pos, pilot_pos_games, pos_actual_h)
+prediction_loss(opt_mh_pos, pilot_pos_games, pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_data)
-prediction_loss(opt_mh_pos, pilot_pos_train_games, pos_actual_h)
-prediction_loss(opt_mh_pos, pilot_pos_test_games, pos_actual_h)
+prediction_loss(opt_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
+prediction_loss(opt_mh_pos, pilot_pos_test_games, pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_test_data)
-prediction_loss(opt_mh_pos, pilot_pos_games[comparison_idx], pos_actual_h)
+prediction_loss(opt_mh_pos, pilot_pos_games[comparison_idx], pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_data[comparison_idx])
 h_dists = [h_distribution(opt_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist = mean(h_dists)
@@ -179,6 +181,7 @@ model_action_pos = deepcopy(Chain(model_0_pos.layers[1:(length(model_0_pos.layer
 
 loss_no_norm(pilot_pos_data[comparison_idx])
 loss_no_norm(pilot_pos_data)
+loss_no_norm(pilot_pos_test_data)
 #%% Estimate with action response layers
 loss(x::Game, y) = Flux.crossentropy(model_action_pos(x), y) + γ*sum(norm, params(model_action_pos))
 loss_no_norm(x::Game, y) = Flux.crossentropy(model_action_pos(x), y)
@@ -197,10 +200,7 @@ println("apa")
 γ = 0.001 # Overfitting penalty
 sim_cost = 0.1
 exact_cost = 0.5
-# model_0_pos = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50, sigmoid), Game_Dense(50,30), Game_Soft(30), Last(1))
-# opt_deep_pos = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
-opt_deep_pos = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Last(1))
-# model_0_pos = Chain(Game_Dense(1, 30, sigmoid), Game_Dense(30, 30, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
+opt_deep_pos = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
 
 # Specific loss function for model_0_pos
 loss(x::Game, y) = begin
@@ -282,34 +282,40 @@ min_loss(pilot_neg_data[comparison_idx])
 mh_neg = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(0., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 
 # costs = Costs(0.03, 0.15, 0.3, 1.5)
-costs = Costs(0.1, 0.1, 0.3, 1.5)
+# costs = Costs(0.1, 0.1, 0.3, 1.5)
+costs = Costs(0.1, 0.1, 0.2, 1.5)
+
 
 fit_mh_neg = deepcopy(mh_neg)
-fit_mh_neg = fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
-fit_mh_neg = fit_h!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs; init_x = get_parameters(fit_mh_neg))
+for i in 1:n_fit_iter
+    fit_mh_neg = fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
+    fit_mh_neg = fit_h!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs; init_x = get_parameters(fit_mh_neg))
+end
 
-prediction_loss(fit_mh_neg, pilot_neg_games, neg_actual_h)
+prediction_loss(fit_mh_neg, pilot_neg_games, neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_data)
-prediction_loss(fit_mh_neg, pilot_neg_train_games, neg_actual_h)
+prediction_loss(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_train_data)
-prediction_loss(fit_mh_neg, pilot_neg_test_games, neg_actual_h)
+prediction_loss(fit_mh_neg, pilot_neg_test_games, neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_test_data)
-prediction_loss(fit_mh_neg, pilot_neg_games[comparison_idx], neg_actual_h)
+prediction_loss(fit_mh_neg, pilot_neg_games[comparison_idx], neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_data[comparison_idx])
 h_dists = [h_distribution(fit_mh_neg, g, neg_actual_h, costs) for g in pilot_neg_games];
 avg_h_dist = mean(h_dists)
 
 opt_mh_neg = deepcopy(mh_neg)
-opt_mh_neg = opt_prior!(opt_mh_neg, pilot_neg_train_games, neg_actual_h, costs)
-opt_mh_neg = optimize_h!(opt_mh_neg, pilot_neg_train_games, neg_actual_h, costs)
+for i in 1:n_fit_iter
+    opt_mh_neg = opt_prior!(opt_mh_neg, pilot_neg_train_games, neg_actual_h, costs)
+    opt_mh_neg = optimize_h!(opt_mh_neg, pilot_neg_train_games, neg_actual_h, costs)
+end
 
-prediction_loss(opt_mh_neg, pilot_neg_games, neg_actual_h)
+prediction_loss(opt_mh_neg, pilot_neg_games, neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_data)
-prediction_loss(opt_mh_neg, pilot_neg_train_games, neg_actual_h)
+prediction_loss(opt_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_train_data)
-prediction_loss(opt_mh_neg, pilot_neg_test_games, neg_actual_h)
+prediction_loss(opt_mh_neg, pilot_neg_test_games, neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_test_data)
-prediction_loss(opt_mh_neg, pilot_neg_games[comparison_idx], neg_actual_h)
+prediction_loss(opt_mh_neg, pilot_neg_games[comparison_idx], neg_actual_h, neg_actual_h, costs)
 min_loss(pilot_neg_data[comparison_idx])
 h_dists = [h_distribution(opt_mh_neg, g, neg_actual_h, costs) for g in pilot_neg_games];
 avg_h_dist = mean(h_dists)
@@ -354,7 +360,7 @@ println("pos on pos", prediction_loss(opt_mh_pos, pilot_pos_games, pos_actual_h)
 ####################################################
 γ = 0.001 # Overfitting penalty
 # model_0_neg = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50, sigmoid), Game_Dense(50,30), Game_Soft(30), Last(1))
-model_0_neg = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Last(1))
+model_0_neg = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Last(1))
 # model_0_neg = Chain(Game_Dense(1, 30, sigmoid), Game_Dense(30, 30, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
 
 # Specific loss function for model_0_neg
@@ -394,8 +400,7 @@ println("apa")
 sim_cost = 0.1
 exact_cost = 0.7
 # model_0_pos = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50, sigmoid), Game_Dense(50,30), Game_Soft(30), Last(1))
-# opt_deep_neg = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
-opt_deep_neg = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Last(1))
+opt_deep_neg = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
 # model_0_neg = Chain(Game_Dense(1, 30, sigmoid), Game_Dense(30, 30, sigmoid), Game_Dense(50,30), Game_Soft(30), Action_Response(1), Action_Response(2), Last(3))
 
 # Specific loss function for model_0_neg
@@ -424,7 +429,7 @@ println("clear print are")
 
 println("------- QCH ----------")
 println("Neg QCH: ", best_fit_qch_neg)
-println("Pos QCH: ", best_fit_qch_p)
+println("Pos QCH: ", best_fit_qch_pos)
 println("neg on neg: ", prediction_loss(best_fit_qch_neg, pilot_neg_games, neg_actual_h))
 println("pos on neg: ", prediction_loss(best_fit_qch_pos, pilot_neg_games, neg_actual_h))
 println("neg on neg comp: ", prediction_loss(best_fit_qch_neg, pilot_neg_games[comparison_idx], neg_actual_h))
@@ -437,11 +442,11 @@ println("neg on pos comp: ", prediction_loss(best_fit_qch_neg, pilot_pos_games[c
 println("pos on pos comp: ", prediction_loss(best_fit_qch_pos, pilot_pos_games[comparison_idx], pos_actual_h))
 
 println("------- Meta Heuristics ----------")
-println("Neg QCH: ", fit_mh_neg)
+println("Neg MH: ", fit_mh_neg)
 h_dists_neg = [h_distribution(fit_mh_neg, g, neg_actual_h, costs) for g in pilot_neg_games];
 avg_h_dist_neg = mean(h_dists_neg);
 println("Avg h neg: ", avg_h_dist_neg)
-println("Pos QCH: ", fit_mh_pos)
+println("Pos MH: ", fit_mh_pos)
 h_dists_pos = [h_distribution(fit_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist_pos = mean(h_dists_pos);
 println("Avg h pos: ", avg_h_dist_pos)
@@ -457,11 +462,11 @@ println("pos on pos comp: ", prediction_loss(fit_mh_pos, pilot_pos_games[compari
 
 
 println("------- Optimal Meta Heuristics ----------")
-println("Neg QCH: ", opt_mh_neg)
+println("Neg MH: ", opt_mh_neg)
 h_dists_neg = [h_distribution(opt_mh_neg, g, neg_actual_h, costs) for g in pilot_neg_games];
 avg_h_dist_neg = mean(h_dists_neg);
 println("Avg h neg: ", avg_h_dist_neg)
-println("Pos QCH: ", opt_mh_pos)
+println("Pos MH: ", opt_mh_pos)
 h_dists_pos = [h_distribution(opt_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist_pos = mean(h_dists_pos);
 println("Avg h pos: ", avg_h_dist_pos)
@@ -557,6 +562,8 @@ for treatment in ["negative", "positive"]
 end
 
 res_df
+
+CSV.write("res_df_from_pilot.csv",res_df)
 ###########################################################
 #%% Plot the relative likelihoods
 ###########################################################
@@ -566,15 +573,40 @@ using StatsPlots
 pyplot()
 
 
-data_names = [:random, :neg_QCH, :pos_QCH, :opt_mh_neg, :opt_mh_pos, :fit_mh_neg, :fit_mh_pos, :opt_deep_neg, :opt_deep_pos, :fit_deep_neg,  :fit_deep_pos, :minimum]
+data_names = [:random, :neg_QCH, :pos_QCH, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :minimum]
+
+treat = "negative"
+data_type = "all"
+vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
+ctg = [repeat(["negative"], 5)..., repeat(["positive"], 5)...]
+nam = [repeat(["QCH", "fit mh", "opt mh", "fit deep", "opt deep"],2)...]
+bar_vals = hcat(transpose(reshape(vals[2:(end-1)], (2,5))))
+plt = groupedbar(nam, bar_vals, group=ctg, lw=1, framestyle = :box, title = treat*"-"*data_type, ylims=(0,1.5))
+plot!([vals[1]], linetype=:hline, width=2, label="random loss", color=:grey)
+plot!([vals[12]], linetype=:hline, width=2, label="min loss", color=:black)
+hline(plt; vals=0.3)
+
+
 plots_vec = []
 for data_type in ["all", "train", "test", "comparison"], treat in ["negative", "positive"]
     vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
-    ctg = [repeat(["minimum"], 5)..., repeat(["negative"], 5)..., repeat(["positive"], 5)..., repeat(["random"], 5)...]
-    nam = [repeat(["QCH", "fit mh", "opt mh", "fit deep", "opt deep"],4)...]
-    bar_vals = hcat(repeat([vals[12]],5), transpose(reshape(vals[2:(end-1)], (2,5))), repeat([vals[1]],5))
-    push!(plots_vec, groupedbar(nam, bar_vals, group=ctg, lw=0, framestyle = :box, title = treat*"-"*data_type))
+    ctg = [repeat(["negative"], 5)..., repeat(["positive"], 5)...]
+    nam = [repeat(["QCH", "fit mh", "opt mh", "fit deep", "opt deep"],2)...]
+    bar_vals = hcat(transpose(reshape(vals[2:(end-1)], (2,5))))
+    plt = groupedbar(nam, bar_vals, group=ctg, lw=0, framestyle = :box, title = treat*"-"*data_type, ylims=(0,1.3))
+    plot!([vals[1]], linetype=:hline, width=2, label="random loss", color=:grey)
+    plot!([vals[12]], linetype=:hline, width=2, label="min loss", color=:black)
+    push!(plots_vec, plt)
 end
+#
+#
+# for data_type in ["all", "train", "test", "comparison"], treat in ["negative", "positive"]
+#     vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
+#     ctg = [repeat(["minimum"], 5)..., repeat(["negative"], 5)..., repeat(["positive"], 5)..., repeat(["random"], 5)...]
+#     nam = [repeat(["QCH", "fit mh", "opt mh", "fit deep", "opt deep"],4)...]
+#     bar_vals = hcat(repeat([vals[12]],5), transpose(reshape(vals[2:(end-1)], (2,5))), repeat([vals[1]],5))
+#     push!(plots_vec, groupedbar(nam, bar_vals, group=ctg, lw=0, framestyle = :box, title = treat*"-"*data_type))
+# end
 
 length(plots_vec)
 plot(plots_vec..., layout=(4,2), size=(1191,1684))
