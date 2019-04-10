@@ -600,8 +600,11 @@ function play_distribution(h::QLK, g::Game)
 end
 
 function cost(h::QLK, c::Costs)
-    (abs(h.λ1) * c.λ*h.α_1 +
-    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -h.α_1 - h.α_0))
+    α_0 = min(max(h.α_0, 0.),1.)
+    α_1 = max(min(h.α_1, 1 - α_0), 0.)
+    α_2 = min(max(1 - α_0 - α_1, 0.), 1.)
+    (abs(h.λ1) * c.λ*α_1 +
+    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
 end
 
 #%%  ==================== QCH Heuristic ====================
@@ -631,8 +634,11 @@ function play_distribution(h::QCH, g::Game)
 end
 
 function cost(h::QCH, c::Costs)
-    (abs(h.λ1) * c.λ*h.α_1 +
-    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -h.α_1 - h.α_0))
+    α_0 = min(max(h.α_0, 0.),1.)
+    α_1 = max(min(h.α_1, 1 - α_0), 0.)
+    α_2 = min(max(1 - α_0 - α_1, 0.), 1.)
+    (abs(h.λ1) * c.λ*α_1 +
+    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
 end
 # %% ==================== MetaHeuristic ====================
 
