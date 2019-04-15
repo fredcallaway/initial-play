@@ -121,6 +121,12 @@ function expected_payoff(h::Heuristic, opponent::Heuristic, g::Game)
     sum(p_outcome .* g.row)
 end
 
+function expected_payoff(p, opponent::Heuristic, g::Game)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
 mutable struct Costs
     α::Float64
     λ::Float64
@@ -594,8 +600,11 @@ function play_distribution(h::QLK, g::Game)
 end
 
 function cost(h::QLK, c::Costs)
-    (abs(h.λ1) * c.λ*h.α_1 +
-    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -h.α_1 - h.α_0))
+    α_0 = min(max(h.α_0, 0.),1.)
+    α_1 = max(min(h.α_1, 1 - α_0), 0.)
+    α_2 = min(max(1 - α_0 - α_1, 0.), 1.)
+    (abs(h.λ1) * c.λ*α_1 +
+    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
 end
 
 #%%  ==================== QCH Heuristic ====================
@@ -625,8 +634,11 @@ function play_distribution(h::QCH, g::Game)
 end
 
 function cost(h::QCH, c::Costs)
-    (abs(h.λ1) * c.λ*h.α_1 +
-    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -h.α_1 - h.α_0))
+    α_0 = min(max(h.α_0, 0.),1.)
+    α_1 = max(min(h.α_1, 1 - α_0), 0.)
+    α_2 = min(max(1 - α_0 - α_1, 0.), 1.)
+    (abs(h.λ1) * c.λ*α_1 +
+    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
 end
 # %% ==================== MetaHeuristic ====================
 
@@ -681,7 +693,7 @@ function set_parameters!(mh::MetaHeuristic, x::Vector{T} where T <: Real)
 end
 
 function expected_payoff(h::MetaHeuristic, opponent::Heuristic, g::Game, costs::Costs)
-    p = play_distribution(h, g, opp_h, costs)
+    p = play_distribution(h, g, opponent, costs)
     p_opp = play_distribution(opponent, transpose(g))
     p_outcome = p * p_opp'
     sum(p_outcome .* g.row)
