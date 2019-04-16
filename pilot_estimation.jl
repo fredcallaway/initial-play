@@ -12,7 +12,6 @@ include("Heuristics.jl")
 include("DeepLayers.jl")
 
 
-
 function json_to_game(s)
     a = JSON.parse(s)
     row = [convert(Float64, a[i][j][1]) for i in 1:length(a), j in 1:length(a[1])]
@@ -54,7 +53,7 @@ rand_loss(y) = Flux.crossentropy(ones(length(y))/length(y), y)
 loss_min(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
 loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
 loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
-min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_min(y,y) for (g,y) in data])/length(data)
+min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])/length(data)
 rand_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([rand_loss(y) for (g,y) in data])/length(data)
 
 costs = Costs(0.1, 0.1, 0.2, 1.5)
@@ -67,25 +66,46 @@ comparison_idx = [31, 37, 41, 44, 49]
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx..., later_com...]
 
-pilot_pos_data = [(json_to_game(first(common_games_df[common_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50];
-append!(pilot_pos_data ,[(json_to_game(first(common_games_df[common_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50]);
+function break_symmetry!(g::Game)
+    if transpose(g.row) == g.col
+        g.row .+= rand(3, 3) * 0.0001
+    end
+end
 
-# By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
-pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.01, pilot_pos_data[41][1].col .+ rand(3,3)*0.01), pilot_pos_data[41][2])
-pilot_pos_data[91] = (transpose(pilot_pos_data[41][1]), pilot_pos_data[91][2])
+function games_and_plays(df)
+    row_plays = map(eachrow(df)) do x
+        game = json_to_game(x.row)
+        break_symmetry!(game)
+        play_dist = float.(JSON.parse(x.row_play))
+        (game, play_dist)
+    end
+    col_plays = map(eachrow(df)) do x
+        game = json_to_game(x.col)
+        break_symmetry!(game)
+        play_dist = float.(JSON.parse(x.col_play))
+        (game, play_dist)
+    end
+    result = append!(row_plays, col_plays)
+    result
+end
+pilot_pos_data = games_and_plays(common_games_df)
 
+# %% ====================  ====================
 
 pilot_pos_games = [d[1] for d in pilot_pos_data];
 pilot_pos_row_plays = [d[2] for d in pilot_pos_data];
 pilot_pos_col_plays = [pilot_pos_row_plays[51:100]..., pilot_pos_row_plays[1:50]...]
 
-pilot_pos_n_train = 70;
-pilot_pos_train_idxs = sample(1:length(pilot_pos_games), pilot_pos_n_train; replace=false);
-pilot_pos_test_idxs = setdiff(1:length(pilot_pos_games), pilot_pos_train_idxs);
-# pilot_pos_train_idxs = setdiff(1:length(pilot_pos_games), comparison_idx)
-# pilot_pos_test_idxs = comparison_idx
-sort!(pilot_pos_train_idxs)
-sort!(pilot_pos_test_idxs)
+floor(Int, 11 * 0.3)
+function train_test_split(n, test_ratio)
+    n_test = floor(Int, n * test_ratio)
+    test = sample(1:n, n_test; replace=false);
+    train = setdiff(1:n, test)
+    sort!.((train, test))
+end
+
+TEST_RATIO = 0.3
+pilot_pos_train_idxs, pilot_pos_test_idxs = train_test_split(length(pilot_pos_data), TEST_RATIO)
 pilot_pos_train_games = pilot_pos_games[pilot_pos_train_idxs];
 pilot_pos_test_games = pilot_pos_games[pilot_pos_test_idxs];
 pilot_pos_train_row = pilot_pos_row_plays[pilot_pos_train_idxs];
@@ -288,8 +308,8 @@ mh_neg = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeu
 
 fit_mh_neg = deepcopy(mh_neg)
 for i in 1:n_fit_iter
-    fit_mh_neg = fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
-    fit_mh_neg = fit_h!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs; init_x = get_parameters(fit_mh_neg))
+    fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
+    fit_h!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs; init_x = get_parameters(fit_mh_neg))
 end
 
 prediction_loss(fit_mh_neg, pilot_neg_games, neg_actual_h, neg_actual_h, costs)
