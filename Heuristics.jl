@@ -8,7 +8,7 @@ import DataStructures: OrderedDict
 using Optim
 # using BenchmarkTools
 import Printf: @printf, @sprintf
-import LineSearches
+# import LineSearches
 # using Flux # To not get a conflict with its sigmoid and my_softmax
 # import Base: rand
 function my_softmax(x)
@@ -615,7 +615,8 @@ mutable struct QCH <: Heuristic
     λ22::Real
 end
 
-QCH(α_0, α_1, λ) = QCH(α_0, α_1, λ,λ, λ)
+QCH(α_0, α_1, λ) = QCH(α_0, α_1, λ, λ, λ)
+QCH() = QCH(1., 1., 1.)
 
 function play_distribution(h::QCH, g::Game)
     level_0 = ones(Real, size(g))/size(g)
