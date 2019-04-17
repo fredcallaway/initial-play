@@ -8,9 +8,9 @@ using JSON
 using CSV
 using DataFrames
 using DataFramesMeta
+using SplitApplyCombine
 include("Heuristics.jl")
 include("DeepLayers.jl")
-
 
 
 function json_to_game(s)
@@ -28,25 +28,6 @@ individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
 common_games_df = CSV.read("pilot/dataframes/positive_games_df.csv")
 competing_games_df = CSV.read("pilot/dataframes/negative_games_df.csv")
 
-
-comparison_idx = [31, 37, 41, 44, 49]
-#%% Look at comparison games
-
-for i in comparison_idx
-    game = json_to_game(first(common_games_df[common_games_df.round .== i, :row]))
-    println(game)
-    pos_row_play = pos_dfrow = first(common_games_df[common_games_df.round .== i, :row_play])
-    pos_col_play = pos_dfrow = first(common_games_df[common_games_df.round .== i, :col_play])
-    println("pos row: ", pos_row_play)
-    println("pos col: ", pos_col_play)
-    neg_row_play = neg_dfrow = first(competing_games_df[competing_games_df.round .== i, :row_play])
-    neg_col_play = neg_dfrow = first(competing_games_df[competing_games_df.round .== i, :col_play])
-    println("neg row: ", neg_row_play)
-    println("neg col: ", neg_col_play)
-    println("------------------------------------------------------")
-end
-
-
 #%% General loss functions
 loss(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
 rand_loss(y) = Flux.crossentropy(ones(length(y))/length(y), y)
@@ -54,7 +35,7 @@ rand_loss(y) = Flux.crossentropy(ones(length(y))/length(y), y)
 loss_min(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
 loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
 loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
-min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_min(y,y) for (g,y) in data])/length(data)
+min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])/length(data)
 rand_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([rand_loss(y) for (g,y) in data])/length(data)
 
 costs = Costs(0.1, 0.1, 0.2, 1.5)
@@ -67,51 +48,83 @@ comparison_idx = [31, 37, 41, 44, 49]
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx..., later_com...]
 
-pilot_pos_data = [(json_to_game(first(common_games_df[common_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50];
-append!(pilot_pos_data ,[(json_to_game(first(common_games_df[common_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50]);
+# function break_symmetry!(g::Game)
+#     if transpose(g.row) == g.col
+#         g.row[1] += 0.0001
+#     end
+# end
 
-# By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
-pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.01, pilot_pos_data[41][1].col .+ rand(3,3)*0.01), pilot_pos_data[41][2])
-pilot_pos_data[91] = (transpose(pilot_pos_data[41][1]), pilot_pos_data[91][2])
+function games_and_plays(df)
+    row_plays = map(eachrow(df)) do x
+        game = json_to_game(x.row)
+        # break_symmetry!(game)
+        play_dist = float.(JSON.parse(x.row_play))
+        (game, play_dist)
+    end
+    col_plays = map(eachrow(df)) do x
+        game = json_to_game(x.col)
+        # break_symmetry!(game)
+        play_dist = float.(JSON.parse(x.col_play))
+        (game, play_dist)
+    end
+    result = append!(row_plays, col_plays)
+    # Break the symetry for the one symetric game.
+    # result[41][1].row[1] += 0.0001
+    # result[91] = (transpose(result[41][1]), result[91][2])
+    result[41] = (Game(result[41][1].row .+ rand(3,3)*0.01, result[41][1].col .+ rand(3,3)*0.01), result[41][2])
+    result[91] = (transpose(result[41][1]), result[91][2])
+    result
+end
+data = games_and_plays(common_games_df)
+for (_, plays) in data
+    plays .= (p .* .99) .+ .01/3
+end
+games, plays = invert(data)
+
+# TODO: Ideally we could use this object for all conditions.
+# One way to accomplish this would be adding small random noise
+# to the games in each condition, so that a different empirical
+# distribution would be used for the different conditions on
+# the comparison games.
+empirical_play = CacheHeuristic(games, plays)
+# %% ====================  ====================
+
+# function train_test_split(n, test_ratio)
+#     n_test = floor(Int, n * test_ratio)
+#     test = sample(1:n, n_test; replace=false);
+#     train = setdiff(1:n, test)
+#     sort!.((train, test))
+# end
+
+function cross_validate(train, test, data; k=5)
+    n = length(data)
+    chunks = Iterators.partition(1:n, div(n,k)) |> collect
+    map(1:k) do i
+        test_indices = chunks[i]
+        train_indices = setdiff(1:n, test_indices)
+        model = train(data[train_indices])
+        test(model, data[train_indices])
+    end
+end
+
+function make_fit(base_model::QCH)
+    games -> fit_h!(deepcopy(base_model), games, empirical_play)
+end
+
+function make_optimize(base_model::QCH, costs=costs)
+    games -> optimize_h!(deepcopy(base_model), games, empirical_play, costs)
+end
+
+function test(model, games)
+    prediction_loss(model, games, empirical_play)
+end
+
+res = cross_validate(make_fit(QCH()), test, games; k=2)
+res = cross_validate(make_optimize(QCH()), test, games; k=2)
 
 
-pilot_pos_games = [d[1] for d in pilot_pos_data];
-pilot_pos_row_plays = [d[2] for d in pilot_pos_data];
-pilot_pos_col_plays = [pilot_pos_row_plays[51:100]..., pilot_pos_row_plays[1:50]...]
+## ALL BELOW IS NOT YET REFACTORED
 
-pilot_pos_n_train = 70;
-pilot_pos_train_idxs = sample(1:length(pilot_pos_games), pilot_pos_n_train; replace=false);
-pilot_pos_test_idxs = setdiff(1:length(pilot_pos_games), pilot_pos_train_idxs);
-# pilot_pos_train_idxs = setdiff(1:length(pilot_pos_games), comparison_idx)
-# pilot_pos_test_idxs = comparison_idx
-sort!(pilot_pos_train_idxs)
-sort!(pilot_pos_test_idxs)
-pilot_pos_train_games = pilot_pos_games[pilot_pos_train_idxs];
-pilot_pos_test_games = pilot_pos_games[pilot_pos_test_idxs];
-pilot_pos_train_row = pilot_pos_row_plays[pilot_pos_train_idxs];
-pilot_pos_test_row = pilot_pos_row_plays[pilot_pos_test_idxs];
-pilot_pos_train_data = pilot_pos_data[pilot_pos_train_idxs];
-pilot_pos_test_data = pilot_pos_data[pilot_pos_test_idxs];
-
-####################################################
-#%% common Treatment: QCH
-####################################################
-pos_actual_h = CacheHeuristic(pilot_pos_games, pilot_pos_row_plays);
-# pilot_pos_opp_h = CacheHeuristic(transpose.(pilot_pos_games), pilot_pos_col_plays)
-pos_qch_h = QCH(0.07, 0.64, 1.5, 1.7, 1.9)
-
-
-fit_qch_pos = deepcopy(pos_qch_h)
-fit_qch_pos = fit_h!(fit_qch_pos, pilot_pos_train_games, pos_actual_h)
-@show prediction_loss(fit_qch_pos, pilot_pos_train_games, pos_actual_h);
-@show prediction_loss(fit_qch_pos, pilot_pos_test_games, pos_actual_h);
-@show prediction_loss(fit_qch_pos, pilot_pos_games[comparison_idx], pos_actual_h)
-
-opt_qch_pos = deepcopy(pos_qch_h)
-opt_qch_pos = optimize_h!(opt_qch_pos, pilot_pos_train_games, pos_actual_h, costs)
-@show prediction_loss(opt_qch_pos, pilot_pos_train_games, pos_actual_h);
-@show prediction_loss(opt_qch_pos, pilot_pos_test_games, pos_actual_h);
-@show prediction_loss(opt_qch_pos, pilot_pos_games[comparison_idx], pos_actual_h)
 ####################################################
 #%% common Treatment: MetaHeuristic
 ####################################################
@@ -119,6 +132,24 @@ opt_qch_pos = optimize_h!(opt_qch_pos, pilot_pos_train_games, pos_actual_h, cost
 mh_pos = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 n_fit_iter = 5
 
+function make_fit(base_model::MetaHeuristic)
+    games -> begin
+        model = deepcopy(base_model)
+        for i in 1:n_fit_iter
+            fit_prior!(model, games, empirical_play, empirical_play, costs)
+            fit_h!(model, games, empirical_play, empirical_play, costs;
+                   init_x = get_parameters(fit_mh_pos))
+        end
+    end
+end
+
+function make_optimize(base_model::MetaHeuristic, costs=costs)
+    games -> optimize_h!(deepcopy(base_model), games, empirical_play, costs)
+end
+
+make_optimize(mh_pos)(games)
+
+# %% ====================  ====================
 fit_mh_pos = deepcopy(mh_pos)
 for i in 1:n_fit_iter
     fit_mh_pos = fit_prior!(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
@@ -288,8 +319,8 @@ mh_neg = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeu
 
 fit_mh_neg = deepcopy(mh_neg)
 for i in 1:n_fit_iter
-    fit_mh_neg = fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
-    fit_mh_neg = fit_h!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs; init_x = get_parameters(fit_mh_neg))
+    fit_prior!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs)
+    fit_h!(fit_mh_neg, pilot_neg_train_games, neg_actual_h, neg_actual_h, costs; init_x = get_parameters(fit_mh_neg))
 end
 
 prediction_loss(fit_mh_neg, pilot_neg_games, neg_actual_h, neg_actual_h, costs)
