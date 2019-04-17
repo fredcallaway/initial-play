@@ -760,7 +760,7 @@ end
 
 function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
-        init_x = ones(size(h))*0.01
+        init_x = ones(size(h))*0.1
     end
     function loss_wrap(x)
         set_parameters!(h, x)

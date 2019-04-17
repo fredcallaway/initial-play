@@ -9,6 +9,7 @@ using CSV
 using DataFrames
 using DataFramesMeta
 using SplitApplyCombine
+using Random
 include("Heuristics.jl")
 include("DeepLayers.jl")
 
@@ -71,7 +72,7 @@ function games_and_plays(df)
     # Break the symetry for the one symetric game.
     # result[41][1].row[1] += 0.0001
     # result[91] = (transpose(result[41][1]), result[91][2])
-    result[41] = (Game(result[41][1].row .+ rand(3,3)*0.01, result[41][1].col .+ rand(3,3)*0.01), result[41][2])
+    result[41] = (Game(result[41][1].row .+ rand(3,3)*0.0000001, result[41][1].col .+ rand(3,3)*0.0000001), result[41][2])
     result[91] = (transpose(result[41][1]), result[91][2])
     result
 end
@@ -80,6 +81,7 @@ data = games_and_plays(common_games_df)
 #     plays .= (plays .* .99) .+ .01/3
 # end
 games, plays = invert(data)
+
 
 # TODO: Ideally we could use this object for all conditions.
 # One way to accomplish this would be adding small random noise
@@ -109,7 +111,7 @@ function cross_validate(train, test, data; k=5)
 end
 
 function make_fit(base_model::QCH)
-    games -> fit_h!(deepcopy(base_model), games, empirical_play)
+    games -> fit_h!(deepcopy(base_model), games, empirical_play, init_x=get_parameters(base_model))
 end
 
 function make_optimize(base_model::QCH, costs=costs)
@@ -124,9 +126,24 @@ model = make_fit(QCH())(games)
 model = make_fit(QCH(0.07, 0.6, 1.5, 1.7, 1.9))(games)
 get_parameters(model)
 prediction_loss(model, games, empirical_play)
+model = QCH(9.209684047623952e-8, 0.4043408343646887, 1.2155200432281212, 0.7678744934201345, 1.84556218589128)
+prediction_loss(model, games, empirical_play)
 # FIXME: These results don't match pilot_estimation.jl (training on all games)
 # They do now!
 
+function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
+    if init_x == nothing
+        init_x = ones(size(h))*0.1
+    end
+    function loss_wrap(x)
+        set_parameters!(h, x)
+        prediction_loss(h, games, actual; loss_f=loss_f)
+    end
+    # x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS())) #TODO: get autodiff to work with logarithm in likelihood
+    x = Optim.minimizer(optimize(loss_wrap, init_x; autodiff = :forward))
+    set_parameters!(h, x)
+    h
+end
 
 res = cross_validate(make_fit(QCH()), test, games; k=4)
 res = cross_validate(make_optimize(QCH()), test, games; k=2)

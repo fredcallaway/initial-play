@@ -73,7 +73,7 @@ pilot_pos_data = [(json_to_game(first(common_games_df[common_games_df.round .== 
 append!(pilot_pos_data ,[(json_to_game(first(common_games_df[common_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50]);
 
 # By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
-pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.01, pilot_pos_data[41][1].col .+ rand(3,3)*0.01), pilot_pos_data[41][2])
+pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.000001, pilot_pos_data[41][1].col .+ rand(3,3)*0.000001), pilot_pos_data[41][2])
 pilot_pos_data[91] = (transpose(pilot_pos_data[41][1]), pilot_pos_data[91][2])
 
 
@@ -101,11 +101,13 @@ pilot_pos_test_data = pilot_pos_data[pilot_pos_test_idxs];
 pos_actual_h = CacheHeuristic(pilot_pos_games, pilot_pos_row_plays);
 # pilot_pos_opp_h = CacheHeuristic(transpose.(pilot_pos_games), pilot_pos_col_plays)
 pos_qch_h = QCH(0.07, 0.6, 1.5, 1.7, 1.9)
+fit_qch_pos = deepcopy(pos_qch_h)
 fit_qch_pos = fit_h!(fit_qch_pos, pilot_pos_games, pos_actual_h)
-@show prediction_loss(fit_qch_pos, pilot_pos_games, pos_actual_h);
+prediction_loss(fit_qch_pos, pilot_pos_games, pos_actual_h)
 
+m = QCH(9.209684047623952e-8, 0.4043408343646887, 1.2155200432281212, 0.7678744934201345, 1.84556218589128)
+prediction_loss(m, pilot_pos_games, pos_actual_h)
 
-println(pilot_pos_data[67])
 
 fit_qch_pos = deepcopy(pos_qch_h)
 fit_qch_pos = fit_h!(fit_qch_pos, pilot_pos_train_games, pos_actual_h)
