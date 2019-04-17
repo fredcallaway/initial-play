@@ -76,9 +76,9 @@ function games_and_plays(df)
     result
 end
 data = games_and_plays(common_games_df)
-for (_, plays) in data
-    plays .= (plays .* .99) .+ .01/3
-end
+# for (_, plays) in data
+#     plays .= (plays .* .99) .+ .01/3
+# end
 games, plays = invert(data)
 
 # TODO: Ideally we could use this object for all conditions.
@@ -86,6 +86,7 @@ games, plays = invert(data)
 # to the games in each condition, so that a different empirical
 # distribution would be used for the different conditions on
 # the comparison games.
+# GUSTAV: I Think that makes a lot of sense, thats how i handeled the symmetry game 41.
 empirical_play = CacheHeuristic(games, plays)
 # %% ====================  ====================
 
@@ -103,7 +104,7 @@ function cross_validate(train, test, data; k=5)
         test_indices = chunks[i]
         train_indices = setdiff(1:n, test_indices)
         model = train(data[train_indices])
-        test(model, data[train_indices])
+        test(model, data[train_indices]) # Shouldn't it be a test_indices here?
     end
 end
 
@@ -120,17 +121,21 @@ function test(model, games)
 end
 
 model = make_fit(QCH())(games)
+model = make_fit(QCH(0.07, 0.6, 1.5, 1.7, 1.9))(games)
 get_parameters(model)
 prediction_loss(model, games, empirical_play)
 # FIXME: These results don't match pilot_estimation.jl (training on all games)
+# They do now!
 
 
-# res = cross_validate(make_fit(QCH()), test, games; k=2)
-# res = cross_validate(make_optimize(QCH()), test, games; k=2)
+res = cross_validate(make_fit(QCH()), test, games; k=4)
+res = cross_validate(make_optimize(QCH()), test, games; k=2)
 
 
-
-
+n = 100
+k = 4
+chunks = Iterators.partition(1:n, div(n,k)) |> collect
+chunks[1]
 
 ####################################################
 #%% common Treatment: MetaHeuristic
@@ -143,8 +148,8 @@ function make_fit(base_model::MetaHeuristic)
     games -> begin
         model = deepcopy(base_model)
         for i in 1:n_fit_iter
-            model = fit_prior!(model, pilot_pos_train_games, empirical_play, empirical_play, costs)
-            model = fit_h!(model, pilot_pos_train_games, empirical_play, empirical_play, costs; init_x = get_parameters(model))
+            model = fit_prior!(model, games, empirical_play, empirical_play, costs)
+            model = fit_h!(model, games, empirical_play, empirical_play, costs; init_x = get_parameters(model))
             # fit_prior!(model, games, empirical_play, empirical_play, costs)
             # fit_h!(model, games, empirical_play, empirical_play, costs;
             #        init_x = get_parameters(fit_mh_pos))

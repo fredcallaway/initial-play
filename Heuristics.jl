@@ -733,8 +733,10 @@ end
 
 function likelihood(x,y)
     l = sum(y .* log.(x))
+    l = isinf(l) ?  sum(y .* (log.((x .+ 0.000001)./1.000003))) : l
     -l
 end
+
 
 function prediction_loss(h::Heuristic, games::Vector{Game}, actual::Heuristic; loss_f = likelihood)
     loss = 0

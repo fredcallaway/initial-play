@@ -101,7 +101,11 @@ pilot_pos_test_data = pilot_pos_data[pilot_pos_test_idxs];
 pos_actual_h = CacheHeuristic(pilot_pos_games, pilot_pos_row_plays);
 # pilot_pos_opp_h = CacheHeuristic(transpose.(pilot_pos_games), pilot_pos_col_plays)
 pos_qch_h = QCH(0.07, 0.6, 1.5, 1.7, 1.9)
+fit_qch_pos = fit_h!(fit_qch_pos, pilot_pos_games, pos_actual_h)
+@show prediction_loss(fit_qch_pos, pilot_pos_games, pos_actual_h);
 
+
+println(pilot_pos_data[67])
 
 fit_qch_pos = deepcopy(pos_qch_h)
 fit_qch_pos = fit_h!(fit_qch_pos, pilot_pos_train_games, pos_actual_h)
