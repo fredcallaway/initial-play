@@ -77,7 +77,7 @@ function games_and_plays(df)
 end
 data = games_and_plays(common_games_df)
 for (_, plays) in data
-    plays .= (p .* .99) .+ .01/3
+    plays .= (plays .* .99) .+ .01/3
 end
 games, plays = invert(data)
 
@@ -119,11 +119,18 @@ function test(model, games)
     prediction_loss(model, games, empirical_play)
 end
 
-res = cross_validate(make_fit(QCH()), test, games; k=2)
-res = cross_validate(make_optimize(QCH()), test, games; k=2)
+model = make_fit(QCH())(games)
+get_parameters(model)
+prediction_loss(model, games, empirical_play)
+# FIXME: These results don't match pilot_estimation.jl (training on all games)
 
 
-## ALL BELOW IS NOT YET REFACTORED
+# res = cross_validate(make_fit(QCH()), test, games; k=2)
+# res = cross_validate(make_optimize(QCH()), test, games; k=2)
+
+
+
+
 
 ####################################################
 #%% common Treatment: MetaHeuristic
@@ -136,10 +143,13 @@ function make_fit(base_model::MetaHeuristic)
     games -> begin
         model = deepcopy(base_model)
         for i in 1:n_fit_iter
-            fit_prior!(model, games, empirical_play, empirical_play, costs)
-            fit_h!(model, games, empirical_play, empirical_play, costs;
-                   init_x = get_parameters(fit_mh_pos))
+            model = fit_prior!(model, pilot_pos_train_games, empirical_play, empirical_play, costs)
+            model = fit_h!(model, pilot_pos_train_games, empirical_play, empirical_play, costs; init_x = get_parameters(model))
+            # fit_prior!(model, games, empirical_play, empirical_play, costs)
+            # fit_h!(model, games, empirical_play, empirical_play, costs;
+            #        init_x = get_parameters(fit_mh_pos))
         end
+        model
     end
 end
 
@@ -147,7 +157,11 @@ function make_optimize(base_model::MetaHeuristic, costs=costs)
     games -> optimize_h!(deepcopy(base_model), games, empirical_play, costs)
 end
 
-make_optimize(mh_pos)(games)
+model = make_fit(mh_pos)(games)
+model
+res = cross_validate(make_optimize(mh_pos), test, games; k=5)
+
+## ALL BELOW IS NOT YET REFACTORED
 
 # %% ====================  ====================
 fit_mh_pos = deepcopy(mh_pos)
