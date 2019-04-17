@@ -303,7 +303,6 @@ end
 
 function cost(h::RowMin, c::Costs)
     (abs(h.λ) * c.λ)
-     #+  c.row   # Answer: Not really, think I was just trying to tinker away an error in the optim.
 end
 
 # %% ==================== RowMax ====================
