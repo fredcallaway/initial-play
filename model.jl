@@ -129,30 +129,10 @@ prediction_loss(model, games, empirical_play)
 model = QCH(9.209684047623952e-8, 0.4043408343646887, 1.2155200432281212, 0.7678744934201345, 1.84556218589128)
 prediction_loss(model, games, empirical_play)
 # FIXME: These results don't match pilot_estimation.jl (training on all games)
-# They do now!
-
-function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
-    if init_x == nothing
-        init_x = ones(size(h))*0.1
-    end
-    function loss_wrap(x)
-        set_parameters!(h, x)
-        prediction_loss(h, games, actual; loss_f=loss_f)
-    end
-    # x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS())) #TODO: get autodiff to work with logarithm in likelihood
-    x = Optim.minimizer(optimize(loss_wrap, init_x; autodiff = :forward))
-    set_parameters!(h, x)
-    h
-end
+# They do now
 
 res = cross_validate(make_fit(QCH()), test, games; k=4)
 res = cross_validate(make_optimize(QCH()), test, games; k=2)
-
-
-n = 100
-k = 4
-chunks = Iterators.partition(1:n, div(n,k)) |> collect
-chunks[1]
 
 ####################################################
 #%% common Treatment: MetaHeuristic
@@ -167,9 +147,6 @@ function make_fit(base_model::MetaHeuristic)
         for i in 1:n_fit_iter
             model = fit_prior!(model, games, empirical_play, empirical_play, costs)
             model = fit_h!(model, games, empirical_play, empirical_play, costs; init_x = get_parameters(model))
-            # fit_prior!(model, games, empirical_play, empirical_play, costs)
-            # fit_h!(model, games, empirical_play, empirical_play, costs;
-            #        init_x = get_parameters(fit_mh_pos))
         end
         model
     end
@@ -180,7 +157,7 @@ function make_optimize(base_model::MetaHeuristic, costs=costs)
 end
 
 model = make_fit(mh_pos)(games)
-model
+prediction_loss(model, games, empirical_play)
 res = cross_validate(make_optimize(mh_pos), test, games; k=5)
 
 ## ALL BELOW IS NOT YET REFACTORED
