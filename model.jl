@@ -128,7 +128,7 @@ function make_fit(base_model::MetaHeuristic; n_iter=5)
         model = deepcopy(base_model)
         for i in 1:n_iter
             fit_prior!(model, games, empirical_play, empirical_play, costs)
-            fit_h!(model, games, empirical_play, empirical_play, costs; init_x = get_parameters(model))
+            fit_h!(model, games, empirical_play, empirical_play, costs)
         end
         model
     end

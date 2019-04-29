@@ -776,7 +776,7 @@ end
 
 function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
-        init_x = ones(size(h))*0.1
+        init_x = get_parameters(h)
     end
     function loss_wrap(x)
         set_parameters!(h, x)
@@ -790,7 +790,7 @@ end
 
 function fit_h!(h::MetaHeuristic, games::Vector{Game}, actual::Heuristic, opp_h, costs; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
-        init_x = ones(size(h))*0.01
+        init_x = get_parameters(h)
     end
     function loss_wrap(x)
         set_parameters!(h, x)
@@ -805,7 +805,7 @@ end
 
 function optimize_h!(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; init_x=nothing)
     if init_x == nothing
-        init_x = ones(size(h))*0.01
+        init_x = get_parameters(h)
     end
     function loss_wrap(x)
         set_parameters!(h, x)
