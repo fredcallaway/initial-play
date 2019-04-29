@@ -9,6 +9,7 @@ using CSV
 using DataFrames
 # using DataFramesMeta
 using SplitApplyCombine
+using Random
 include("Heuristics.jl")
 # include("DeepLayers.jl")
 
@@ -73,8 +74,9 @@ function games_and_plays(df)
     result[91] = (transpose(result[41][1]), result[91][2])
     result
 end
-data = games_and_plays(common_games_df)
-games, plays = invert(data)
+
+const common_data = games_and_plays(common_games_df)
+const competing_data = games_and_plays(competing_games_df)
 
 # TODO: Ideally we could use this object for all conditions.
 # One way to accomplish this would be adding small random noise
@@ -82,7 +84,6 @@ games, plays = invert(data)
 # distribution would be used for the different conditions on
 # the comparison games.
 # GUSTAV: I Think that makes a lot of sense, thats how i handeled the symmetry game 41.
-empirical_play = CacheHeuristic(games, plays);
 # %% ====================  ====================
 
 # function train_test_split(n, test_ratio)
@@ -92,27 +93,44 @@ empirical_play = CacheHeuristic(games, plays);
 #     sort!.((train, test))
 # end
 
-function cross_validate(train, test, data; k=5, parallel=false)
+function cross_validate(train, test, data; k=5, seed=1, parallel=false)
     n = length(data)
-    chunks = Iterators.partition(1:n, div(n,k)) |> collect
+    n2 = fld(n,2)
+    indices = shuffle(MersenneTwister(seed), 1:n2)
+    chunks = Iterators.partition(indices, div(n2,k)) |> collect
+    for ch in chunks
+        col_indices = ch .+ 50
+        push!(ch, col_indices...)
+    end
+
     mymap = parallel ? pmap : map
     mymap(1:k) do i
         test_indices = chunks[i]
         train_indices = setdiff(1:n, test_indices)
         model = train(data[train_indices])
-        test(model, data[train_indices]) # Shouldn't it be a test_indices here?
+        test(model, data[test_indices])
     end
 end
 
 function make_fit(base_model::QCH)
-    games -> fit_h!(deepcopy(base_model), games, empirical_play)
+    data -> begin
+        games, plays = invert(data)
+        empirical_play = CacheHeuristic(games, plays);
+        fit_h!(deepcopy(base_model), games, empirical_play)
+    end
 end
 
 function make_optimize(base_model::QCH, costs=costs)
-    games -> optimize_h!(deepcopy(base_model), games, empirical_play, costs)
+    data -> begin
+        games, plays = invert(data)
+        empirical_play = CacheHeuristic(games, plays);
+        optimize_h!(deepcopy(base_model), games, empirical_play, costs)
+    end
 end
 
-function test(model, games)
+function test(model, data)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
     prediction_loss(model, games, empirical_play)
 end
 
@@ -124,7 +142,9 @@ end
 
 
 function make_fit(base_model::MetaHeuristic; n_iter=5)
-    games -> begin
+    data -> begin
+        games, plays = invert(data)
+        empirical_play = CacheHeuristic(games, plays);
         model = deepcopy(base_model)
         for i in 1:n_iter
             fit_prior!(model, games, empirical_play, empirical_play, costs)
@@ -135,7 +155,9 @@ function make_fit(base_model::MetaHeuristic; n_iter=5)
 end
 
 function make_optimize(base_model::MetaHeuristic, costs=costs; n_iter=5)
-    games -> begin
+    data -> begin
+        games, plays = invert(data)
+        empirical_play = CacheHeuristic(games, plays);
         model = deepcopy(base_model)
         for i in 1:n_iter
             optimize_h!(model, games, empirical_play, costs)
