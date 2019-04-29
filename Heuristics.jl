@@ -127,6 +127,18 @@ function expected_payoff(p, opponent::Heuristic, g::Game)
     sum(p_outcome .* g.row)
 end
 
+function expected_payoff(p::Vector, p_opp::Vector, g::Game)
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
+function expected_payoff(h::Heuristic, p_opp::Vector, g::Game)
+    p = play_distribution(h, g)
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
+
 mutable struct Costs
     α::Float64
     λ::Float64
@@ -717,6 +729,10 @@ function perf(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
     return (payoff/length(games) - costs(h))
 end
 
+function perf(h::Heuristic, game::Game, opp_h::Vector, costs::Costs)
+    return (expected_payoff(h, opp_h, game) - costs(h))
+end
+
 function perf(mh::MetaHeuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
     payoff = 0
     for game in games
@@ -760,7 +776,7 @@ end
 
 function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
-        init_x = ones(size(h))*0.01
+        init_x = ones(size(h))*0.1
     end
     function loss_wrap(x)
         set_parameters!(h, x)
