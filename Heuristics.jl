@@ -140,8 +140,8 @@ end
 ## the cost with a flexible number of parameters
 function Costs(;kwargs...)
     costs = Costs(zeros(length(fieldnames(Costs)))...)
-    for v in kwargs
-        setfield!(costs, v[1], v[2])
+    for (k, v) in kwargs
+        setfield!(costs, k, v)
     end
     return costs
 end
