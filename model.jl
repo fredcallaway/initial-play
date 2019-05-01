@@ -39,7 +39,7 @@ loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,
 min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])/length(data)
 rand_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([rand_loss(y) for (g,y) in data])/length(data)
 
-costs = Costs(0.1, 0.1, 0.2, 1.5)
+costs = Costs(0.1, 0.1, 0.2, 0.8)
 
 
 ###########################################################################
@@ -142,6 +142,7 @@ end
 
 
 function make_fit(base_model::MetaHeuristic; n_iter=5)
+    @assert false # FIXME: need to pass costs!
     data -> begin
         games, plays = invert(data)
         empirical_play = CacheHeuristic(games, plays);
