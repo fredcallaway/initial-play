@@ -21,15 +21,16 @@ function json_to_game(s)
     row_g = Game(row, col)
 end
 ###########################################################################
-#%% Load the data
+# %% Load the data
 ###########################################################################
 
-particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
-individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
-common_games_df = CSV.read("pilot/dataframes/positive_games_df.csv")
-competing_games_df = CSV.read("pilot/dataframes/negative_games_df.csv")
+# particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
+# individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
+competing_games_df = CSV.read("data/processed/e3jydlve_play_distributions.csv");
+common_games_df = CSV.read("data/processed/nlesp5ss_play_distributions.csv");
 
-#%% General loss functions
+
+# %% General loss functions
 loss(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
 rand_loss(y) = Flux.crossentropy(ones(length(y))/length(y), y)
 
@@ -39,13 +40,14 @@ loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,
 min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])/length(data)
 rand_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([rand_loss(y) for (g,y) in data])/length(data)
 
-costs = Costs(0.1, 0.1, 0.2, 0.8)
+costs = Costs(0.1682716344671231, 0.18753820682175806, 0.06078936090685586, 1.0690653407809032)
 
 
 ###########################################################################
-#%% common Treatment: Load the data
+# %% common Treatment: Load the data
 ###########################################################################
-comparison_idx = [31, 37, 41, 44, 49]
+comparison_idx = [31, 34, 38, 41, 44, 50]
+
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx; later_com]
 
@@ -54,17 +56,19 @@ comparison_idx = [comparison_idx; later_com]
 #         g.row[1] += 0.0001
 #     end
 # end
+
+parse_play(x) = float.(JSON.parse(replace(replace(x, ")" => "]"),  "(" => "[",)))
 function games_and_plays(df)
     row_plays = map(eachrow(df)) do x
-        game = json_to_game(x.row)
+        game = json_to_game(x.row_game)
         # break_symmetry!(game)
-        play_dist = float.(JSON.parse(x.row_play))
+        play_dist = parse_play(x.row_play)
         (game, play_dist)
     end
     col_plays = map(eachrow(df)) do x
-        game = json_to_game(x.col)
+        game = json_to_game(x.col_game)
         # break_symmetry!(game)
-        play_dist = float.(JSON.parse(x.col_play))
+        play_dist = parse_play(x.col_play)
         (game, play_dist)
     end
     result = append!(row_plays, col_plays)
@@ -78,20 +82,7 @@ end
 const common_data = games_and_plays(common_games_df)
 const competing_data = games_and_plays(competing_games_df)
 
-# TODO: Ideally we could use this object for all conditions.
-# One way to accomplish this would be adding small random noise
-# to the games in each condition, so that a different empirical
-# distribution would be used for the different conditions on
-# the comparison games.
-# GUSTAV: I Think that makes a lot of sense, thats how i handeled the symmetry game 41.
 # %% ====================  ====================
-
-# function train_test_split(n, test_ratio)
-#     n_test = floor(Int, n * test_ratio)
-#     test = sample(1:n, n_test; replace=false);
-#     train = setdiff(1:n, test)
-#     sort!.((train, test))
-# end
 
 function cross_validate(train, test, data; k=5, seed=1, parallel=false)
     n = length(data)
@@ -136,7 +127,7 @@ end
 
 
 ####################################################
-#%% common Treatment: MetaHeuristic
+# %% common Treatment: MetaHeuristic
 ####################################################
 # mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
 
@@ -167,3 +158,12 @@ function make_optimize(base_model::MetaHeuristic, costs=costs; n_iter=5)
         model
     end
 end
+
+const train_indices, test_indices = let
+    train_indices = collect(1:30)
+    push!(train_indices, (train_indices .+ 50)...)
+    test_indices = setdiff(1:100, train_indices)
+    train_indices, test_indices
+end
+
+

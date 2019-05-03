@@ -1,115 +1,74 @@
 using DataFrames
 using CSV
 using JSON
+using StatsBase
+using SplitApplyCombine
+
 include("Heuristics.jl")
 
+function write_play_distributions(df_wide_all, session_code)
+    names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)))
 
-df_wide_all = CSV.read("pilot/all_apps_wide_2019-04-06.csv")
+    n_page = maximum(df_wide_all.participant__index_in_pages)
+    keep = ((df_wide_all.participant__index_in_pages .== n_page) .&
+            (df_wide_all.session_code .== session_code))
+    df_wide = df_wide_all[keep, :]
 
-df_wide = df_wide_all[(df_wide_all.participant__index_in_pages .== 255) .& (df_wide_all.session_code .== "viazupku"), :]
+    participant_df = map(eachrow(df_wide)) do row
+        (pid = row.participant_code,
+         started = row.participant_time_started,
+         tot_payoff = row.participant_payoff,
+         treatment = row.normal_form_games_1_player_treatment,
+         session_code = row.session_code)
+    end |> DataFrame
 
-participant_df = DataFrame()
-for row in eachrow(df_wide)
-    dict = Dict()
-    dict[:pid] = row.participant_code
-    dict[:started] = row.participant_time_started
-    dict[:tot_payoff] = row.participant_payoff
-    dict[:treatment] = row.normal_form_games_1_player_treatment
-    dict[:role] = row.normal_form_games_1_player_player_role
-    dict[:session_code] = row.session_code
-    if length(names(participant_df)) == 0
-        participant_df = DataFrame(dict)
-    elseif  ! (dict[:pid] in participant_df.pid)
-        push!(participant_df, dict)
-    end
-end
+    getvar(name, i) = Symbol("normal_form_games_" * string(i) * "_player_" * string(name))
 
-individal_choices_df = DataFrame()
-for row in eachrow(df_wide)
-    pid = row.participant_code
-    treatment = row.normal_form_games_1_player_treatment
-    role = row.normal_form_games_1_player_player_role
-    session = row.session_code
-    for i in 1:50
-        dict = Dict()
-        dict[:session_code] = session
-        dict[:pid] = pid
-        dict[:treatment] = treatment
-        dict[:role] = role
-        dict[:round] = i
-        dict[:choice] = row[Symbol("normal_form_games_" * string(i) * "_player_choice")]
-        dict[:other_choice] = row[Symbol("normal_form_games_" * string(i) * "_player_other_choice")]
-        if length(names(individal_choices_df)) == 0
-            individal_choices_df = DataFrame(dict)
-        elseif  ! any(all.(zip(individal_choices_df.pid .== dict[:pid], individal_choices_df.round .== i)))
-            push!(individal_choices_df, dict)
+    individal_choices_df = mapmany(eachrow(df_wide)) do row
+        map(1:50) do i
+            (session_code = row.session_code,
+             pid = row.participant_code,
+             treatment = row[getvar(:treatment, i)],
+             role = row[getvar(:player_role, i)],
+             round = i,
+             choice = row[getvar(:choice, i)],
+             other_choice = row[getvar(:other_choice, i)])
         end
+    end |> DataFrame
+
+    x = by(individal_choices_df, [:round, :role],
+        :choice => x -> Tuple(counts(x, 0:2) ./ length(x))
+    )
+
+    df = unstack(x, :role, :choice_function)
+    rename!(df, :col => :col_play, :row => :row_play)
+    row = []
+    col = []
+    for i in 1:50
+        games = df_wide[getvar(:game, i)]
+        col_idx = argmax(df_wide[getvar(:player_role, i)] .== "col")
+        row_idx = argmax(df_wide[getvar(:player_role, i)] .== "row")
+        push!(row, games[col_idx])
+        push!(col, games[row_idx])
     end
+
+    df[:row_game] = row
+    df[:col_game] = col
+    df[:treatment] = participant_df.treatment[1]
+
+    comparison = [31, 34, 38, 41, 44, 50]
+    df[:type] = map(1:50) do i
+        i in comparison ? "comparison" : "treatment"
+    end
+
+    df |> CSV.write("data/processed/$(session_code)_play_distributions.csv")
 end
 
-
-
-function json_to_game(s)
-    a = JSON.parse(s)
-    row = [convert(Float64, a[i][j][1]) for i in 1:length(a), j in 1:length(a[1])]
-    col = [convert(Float64, a[i][j][2]) for i in 1:length(a), j in 1:length(a[1])]
-    row_g = Game(row, col)
-end
-# for row in eachrow(df_wide)
-# for treatment in ["positive"]
-positive_games_df = DataFrame()
-comparison_games = [31, 37, 41, 44, 49]
-# for treatment in ["positive", "negative"]
-df_wide_positive = df_wide[df_wide.normal_form_games_1_player_treatment .== "positive", :]
-for i in 1:50
-    treat = "positive"
-    dict = Dict()
-    dict[:session_code] = first(df_wide_positive.session_code)
-    dict[:row] = first(df_wide_positive[(df_wide_positive.normal_form_games_1_player_treatment .== treat) .& (df_wide_positive.normal_form_games_1_player_player_role .== "row"), Symbol("normal_form_games_"*string(i)*"_player_game")])
-    dict[:col] = first(df_wide_positive[(df_wide_positive.normal_form_games_1_player_treatment .== treat) .& (df_wide_positive.normal_form_games_1_player_player_role .== "col"), Symbol("normal_form_games_"*string(i)*"_player_game")])
-    dict[:round] = i
-    dict[:type] = i in comparison_games ? "comparison" : "treatment"
-    play_dists = Dict("row" => zeros(3), "col" => zeros(3))
-    for row in eachrow(individal_choices_df[(individal_choices_df.round .== i) .& (individal_choices_df.treatment .== treat), [:role, :choice]])
-        play_dists[row.role][row.choice+1] += 1
-    end
-    dict[:row_play] = JSON.json((play_dists["row"]/sum(play_dists["row"])))
-    dict[:col_play] = JSON.json(play_dists["col"]/sum(play_dists["col"]))
-    dict
-    if length(names(positive_games_df)) == 0
-        positive_games_df = DataFrame(dict)
-    elseif length(positive_games_df[positive_games_df.round .== i, :round]) == 0
-        push!(positive_games_df, dict)
+raw_csv = "data/raw/all_apps_wide_2019-05-03.csv"
+df_wide_all = CSV.read(raw_csv);
+names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)));
+for (code,n) in countmap(df_wide_all.session_code)
+    if n >= 30
+        println(write_play_distributions(df_wide_all, code))
     end
 end
-
-negative_games_df = DataFrame()
-comparison_games = [31, 37, 41, 44, 49]
-df_wide_negative = df_wide[df_wide.normal_form_games_1_player_treatment .== "negative", :]
-# for treatment in ["positive", "negative"]
-for i in 1:50
-    treat = "negative"
-    dict = Dict()
-    dict[:session_code] = first(df_wide_negative.session_code)
-    dict[:row] = first(df_wide_negative[(df_wide_negative.normal_form_games_1_player_treatment .== treat) .& (df_wide_negative.normal_form_games_1_player_player_role .== "row"), Symbol("normal_form_games_"*string(i)*"_player_game")])
-    dict[:col] = first(df_wide_negative[(df_wide_negative.normal_form_games_1_player_treatment .== treat) .& (df_wide_negative.normal_form_games_1_player_player_role .== "col"), Symbol("normal_form_games_"*string(i)*"_player_game")])
-    dict[:round] = i
-    dict[:type] = i in comparison_games ? "comparison" : "treatment"
-    play_dists = Dict("row" => zeros(3), "col" => zeros(3))
-    for row in eachrow(individal_choices_df[(individal_choices_df.round .== i) .& (individal_choices_df.treatment .== treat), [:role, :choice]])
-        play_dists[row.role][row.choice+1] += 1
-    end
-    dict[:row_play] = JSON.json((play_dists["row"]/sum(play_dists["row"])))
-    dict[:col_play] = JSON.json(play_dists["col"]/sum(play_dists["col"]))
-    dict
-    if length(names(negative_games_df)) == 0
-        negative_games_df = DataFrame(dict)
-    elseif length(negative_games_df[negative_games_df.round .== i, :round]) == 0
-        push!(negative_games_df, dict)
-    end
-end
-
-CSV.write("pilot/dataframes/participant_df.csv", participant_df)
-CSV.write("pilot/dataframes/individal_choices_df.csv", individal_choices_df)
-CSV.write("pilot/dataframes/positive_games_df.csv", positive_games_df)
-CSV.write("pilot/dataframes/negative_games_df.csv", negative_games_df)
