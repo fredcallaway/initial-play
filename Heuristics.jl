@@ -74,12 +74,14 @@ function normalize(g::Game)
     Game(g.row .- mean(g.row), g.col .- mean(g.col))
 end
 
-Base.show(io::IO, g::Game) = begin
+Base.show(io::IO,  g::Game) = print(io, "G ")
+
+Base.display(g::Game) = begin
     # pritnln(g.name)
     for i in 1:size(g)
         for j in 1:size(g)
             # print(Int(g.row[i,j]), ",", Int(g.col[i,j]), "  ")
-            @printf("%+3.1f , %+3.1f | ", g.row[i,j], g.col[i,j])
+            @printf("%+1.0f , %+1.0f | ", g.row[i,j], g.col[i,j])
         end
         println()
     end
