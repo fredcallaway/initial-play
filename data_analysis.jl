@@ -48,8 +48,8 @@ function write_play_distributions(df_wide_all, session_code)
         games = df_wide[getvar(:game, i)]
         col_idx = argmax(df_wide[getvar(:player_role, i)] .== "col")
         row_idx = argmax(df_wide[getvar(:player_role, i)] .== "row")
-        push!(row, games[col_idx])
-        push!(col, games[row_idx])
+        push!(row, games[row_idx])
+        push!(col, games[col_idx])
     end
 
     df[:row_game] = row
@@ -65,6 +65,7 @@ function write_play_distributions(df_wide_all, session_code)
 end
 
 raw_csv = "data/raw/all_apps_wide_2019-05-03.csv"
+# raw_csv = "data/pilot/all_apps_wide_2019-04-06.csv"
 df_wide_all = CSV.read(raw_csv);
 names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)));
 for (code,n) in countmap(df_wide_all.session_code)
