@@ -21,18 +21,22 @@ end
 #%% Load the data
 ###########################################################################
 
-particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
-individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
-common_games_df = CSV.read("pilot/dataframes/positive_games_df.csv")
-competing_games_df = CSV.read("pilot/dataframes/negative_games_df.csv")
+# particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
+# individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
+common_games_1_df = CSV.read("data/pilot/dataframes/positive_games_df.csv")
+competing_games_1_df = CSV.read("data/pilot/dataframes/negative_games_df.csv")
 
+competing_games_2_df = CSV.read("data/processed/e3jydlve_play_distributions.csv");
+common_games_2_df = CSV.read("data/processed/nlesp5ss_play_distributions.csv");
 
-comparison_idx = [31, 37, 41, 44, 49]
+# comparison_idx = [31, 37, 41, 44, 49]
+# comparison_idx = [31, 34, 38, 41, 44, 50]
+
 #%% Look at comparison games
 
 for i in comparison_idx
-    game = json_to_game(first(common_games_df[common_games_df.round .== i, :row]))
-    println(game)
+    game = json_to_game(first(common_games_df[common_games_df.round .== i, :row_game]))
+    display(game)
     pos_row_play = pos_dfrow = first(common_games_df[common_games_df.round .== i, :row_play])
     pos_col_play = pos_dfrow = first(common_games_df[common_games_df.round .== i, :col_play])
     println("pos row: ", pos_row_play)
@@ -65,12 +69,37 @@ opt = ADAM(0.001, (0.9, 0.999))
 ###########################################################################
 #%% common Treatment: Load the data
 ###########################################################################
-comparison_idx = [31, 37, 41, 44, 49]
+comparison_idx = [31, 37, 41, 44, 49, 131, 134, 138, 141, 144, 150]
+comparison_idx = [31, 34, 38, 41, 44, 50]
+
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx..., later_com...]
 
-pilot_pos_data = [(json_to_game(first(common_games_df[common_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50];
-append!(pilot_pos_data ,[(json_to_game(first(common_games_df[common_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50]);
+parse_play(x) = float.(JSON.parse(replace(replace(x, ")" => "]"),  "(" => "[",)))
+function games_and_plays(df)
+    row_plays = map(eachrow(df)) do x
+        game = json_to_game(x.row_game)
+        game.row[1,2] += 1e-5
+        game.col[1,2] += 1e-5
+        play_dist = parse_play(x.row_play)
+        (game, play_dist)
+    end
+    col_plays = map(eachrow(df)) do x
+        game = json_to_game(x.col_game)
+        game.row[2,1] += 1e-5
+        game.col[2,1] += 1e-5
+        # break_symmetry!(game)
+        play_dist = parse_play(x.col_play)
+        (game, play_dist)
+    end
+    result = append!(row_plays, col_plays)
+    result
+end
+
+# pilot_pos_data = [(json_to_game(first(common_games_df[common_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50];
+# append!(pilot_pos_data ,[(json_to_game(first(common_games_df[common_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50]);
+
+pilot_pos_data = games_and_plays(common_games_df)
 
 # By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
 pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.000001, pilot_pos_data[41][1].col .+ rand(3,3)*0.000001), pilot_pos_data[41][2])
@@ -137,12 +166,17 @@ end
 prediction_loss(fit_mh_pos, pilot_pos_train_games, pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_train_data)
 prediction_loss(fit_mh_pos, pilot_pos_test_games, pos_actual_h, pos_actual_h, costs)
+prediction_loss(fit_mh_pos, pilot_pos_games, pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_test_data)
 prediction_loss(fit_mh_pos, pilot_pos_games[comparison_idx], pos_actual_h, pos_actual_h, costs)
 min_loss(pilot_pos_data[comparison_idx])
 h_dists = [h_distribution(fit_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist = mean(h_dists)
 
+
+prediction_loss(fit_mh_pos, pilot_pos_games[[44, 94]], pos_actual_h, pos_actual_h, costs)
+
+play_distribution(fit_mh_pos, pilot_pos_games[50], pos_actual_h, costs)
 
 opt_mh_pos = deepcopy(mh_pos)
 for i in 1:n_fit_iter
@@ -158,9 +192,6 @@ prediction_loss(opt_mh_pos, pilot_pos_games[comparison_idx], pos_actual_h, pos_a
 min_loss(pilot_pos_data[comparison_idx])
 h_dists = [h_distribution(opt_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist = mean(h_dists)
-
-
-
 
 
 ####################################################
@@ -233,16 +264,14 @@ println("clear print are")
 ###########################################################################
 #%% competing Treatment: Load the data
 ###########################################################################
-comparison_idx = [31, 37, 41, 44, 49]
-later_com = 50 .+ comparison_idx
-comparison_idx = [comparison_idx..., later_com...]
+# pilot_neg_data = [(json_to_game(first(competing_games_df[competing_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :row_play])))) for i in 1:50];
+# append!(pilot_neg_data ,[(json_to_game(first(competing_games_df[competing_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :col_play])))) for i in 1:50]);
 
-pilot_neg_data = [(json_to_game(first(competing_games_df[competing_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :row_play])))) for i in 1:50];
-append!(pilot_neg_data ,[(json_to_game(first(competing_games_df[competing_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :col_play])))) for i in 1:50]);
+pilot_neg_data = games_and_plays(competing_games_df)
 
 # By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
-pilot_neg_data[41] = (Game(pilot_neg_data[41][1].row .+ rand(3,3)*0.01, pilot_neg_data[41][1].col .+ rand(3,3)*0.01), pilot_neg_data[41][2])
-pilot_neg_data[91] = (transpose(pilot_neg_data[41][1]), pilot_neg_data[91][2])
+# pilot_neg_data[41] = (Game(pilot_neg_data[41][1].row .+ rand(3,3)*0.01, pilot_neg_data[41][1].col .+ rand(3,3)*0.01), pilot_neg_data[41][2])
+# pilot_neg_data[91] = (transpose(pilot_neg_data[41][1]), pilot_neg_data[91][2])
 
 
 pilot_neg_games = [d[1] for d in pilot_neg_data];
@@ -273,6 +302,7 @@ neg_qch_h = QCH(0.07, 0.64, 1.5, 1.7, 1.9)
 fit_qch_neg = deepcopy(neg_qch_h)
 fit_qch_neg = fit_h!(fit_qch_neg, pilot_neg_train_games, neg_actual_h)
 prediction_loss(fit_qch_neg, pilot_neg_train_games, neg_actual_h)
+prediction_loss(fit_qch_neg, pilot_neg_games, neg_actual_h)
 prediction_loss(fit_qch_neg, pilot_neg_test_games, neg_actual_h)
 prediction_loss(fit_qch_neg, pilot_neg_games[comparison_idx], neg_actual_h)
 
@@ -358,6 +388,27 @@ println("pos on neg", prediction_loss(opt_mh_pos, pilot_neg_games, neg_actual_h)
 
 println("neg on pos", prediction_loss(opt_mh_neg, pilot_pos_games, pos_actual_h))
 println("pos on pos", prediction_loss(opt_mh_pos, pilot_pos_games, pos_actual_h))
+
+
+######
+#%% Find good comparison games
+comparison_games = pilot_pos_games[comparison_idx][1:6]
+
+new_g_6 = deepcopy(comparison_games[6])
+new_g_6.row[3,1:2] .= 1.
+new_g_6.row[3,3] = 8.
+new_g_6.col[1:2,3] .= 1.
+new_g_6.col[3,3] = 8.
+
+play_distribution(fit_mh_pos, new_g_6)
+
+for i in [31, 34, 38, 41, 44, 50]
+    println(i)
+    println(pilot_neg_row_plays[i])
+    println(pilot_neg_row_plays[50 + i])
+    println(prediction_loss(fit_mh_neg, pilot_neg_games[[i, i+50]], neg_actual_h, neg_actual_h, costs))
+    println(play_distribution(fit_mh_neg, pilot_neg_games[i], neg_actual_h, costs))
+end
 
 
 ####################################################

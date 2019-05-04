@@ -20,16 +20,50 @@ end
 
 particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
 individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
-common_games_df = CSV.read("pilot/dataframes/positive_games_df.csv")
-competing_games_df = CSV.read("pilot/dataframes/negative_games_df.csv")
+# common_games_df = CSV.read("pilot/dataframes/positive_games_df.csv")
+# competing_games_df = CSV.read("pilot/dataframes/negative_games_df.csv")
+competing_games_df = CSV.read("data/processed/e3jydlve_play_distributions.csv");
+common_games_df = CSV.read("data/processed/nlesp5ss_play_distributions.csv");
+# comparison_idx = [31, 37, 41, 44, 49]
 
-comparison_idx = [31, 37, 41, 44, 49]
+comparison_idx = [31, 34, 38, 41, 44, 50]
+
+
+parse_play(x) = float.(JSON.parse(replace(replace(x, ")" => "]"),  "(" => "[",)))
+function games_and_plays(df)
+    row_plays = map(eachrow(df)) do x
+        game = json_to_game(x.row_game)
+        game.row[1,2] += 1e-5
+        game.col[1,2] += 1e-5
+        play_dist = parse_play(x.row_play)
+        (game, play_dist)
+    end
+    col_plays = map(eachrow(df)) do x
+        game = json_to_game(x.col_game)
+        game.row[2,1] += 1e-5
+        game.col[2,1] += 1e-5
+        # break_symmetry!(game)
+        play_dist = parse_play(x.col_play)
+        (game, play_dist)
+    end
+    result = append!(row_plays, col_plays)
+    result
+end
+
+
+positive_data = games_and_plays(common_games_df)
+negative_data = games_and_plays(competing_games_df)
 
 data_dicts = Dict()
-data_dicts["positive"] = Dict("row" => [Dict("game"=> json_to_game(first(common_games_df[common_games_df.round .== i, :row])), "play"=> convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50],
-                              "col" => [Dict("game"=> json_to_game(first(common_games_df[common_games_df.round .== i, :col])), "play"=> convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50])
-data_dicts["negative"] = Dict("row" => [Dict("game"=> json_to_game(first(competing_games_df[competing_games_df.round .== i, :row])), "play"=> convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :row_play])))) for i in 1:50],
-                              "col" => [Dict("game"=> json_to_game(first(competing_games_df[competing_games_df.round .== i, :col])), "play"=> convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :col_play])))) for i in 1:50])
+data_dicts["positive"] = Dict("row" => [Dict("game"=> positive_data[i][1], "play"=> positive_data[i][2]) for i in 1:50],
+                              "col" => [Dict("game"=> positive_data[i+50][1], "play"=> positive_data[i+50][2]) for i in 1:50])
+data_dicts["negative"] = Dict("row" => [Dict("game"=> negative_data[i][1], "play"=> negative_data[i][2]) for i in 1:50],
+                              "col" => [Dict("game"=> negative_data[i+50][1], "play"=> negative_data[i+50][2]) for i in 1:50])
+
+# data_dicts["positive"] = Dict("row" => [Dict("game"=> json_to_game(first(common_games_df[common_games_df.round .== i, :row])), "play"=> convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50],
+#                               "col" => [Dict("game"=> json_to_game(first(common_games_df[common_games_df.round .== i, :col])), "play"=> convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50])
+# data_dicts["negative"] = Dict("row" => [Dict("game"=> json_to_game(first(competing_games_df[competing_games_df.round .== i, :row])), "play"=> convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :row_play])))) for i in 1:50],
+#                               "col" => [Dict("game"=> json_to_game(first(competing_games_df[competing_games_df.round .== i, :col])), "play"=> convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :col_play])))) for i in 1:50])
 
 
 opp_h_dict = Dict("positive" => Dict(), "negative" => Dict())
@@ -53,10 +87,10 @@ function rule_loss(mh_init, β₀, β₁, costs; treats = ["positive", "negative
         for r in 1:50
             game = data_dicts[treat][role][r]["game"]
             for i in 1:length(mh.h_list)
-                mh.prior[i] = β₀ * mh.prior[i] + β₁ * perf(mh.h_list[i], game, opp_h, costs)
+                mh.prior[i] = β₀ * mh.prior[i] + β₁ * perf(mh.h_list[i], [game], opp_h, costs)
             end
-            pred_loss = pred_loss + prediction_loss_no_RI(mh, [game], actual_h, opp_h, costs)*15 # This is to get sum of loss instead of average
-            # pred_loss = pred_loss + prediction_loss(mh, [game], actual_h, costs)*15 # This is to get sum of loss instead of average
+            # pred_loss = pred_loss + prediction_loss_no_RI(mh, [game], actual_h, opp_h, costs)*15 # This is to get sum of loss instead of average
+            pred_loss = pred_loss + prediction_loss(mh, [game], actual_h, opp_h, costs)*15 # This is to get sum of loss instead of average
         end
     end
     return pred_loss
@@ -72,7 +106,7 @@ function end_rules(mh_init, β₀, β₁, costs; treats = ["positive", "negative
         for r in 1:50
             game = data_dicts[treat][role][r]["game"]
             for i in 1:length(mh.h_list)
-                mh.prior[i] = β₀ * mh.prior[i] + β₁ * perf(mh.h_list[i], game, opp_h, costs)
+                mh.prior[i] = β₀ * mh.prior[i] + β₁ * perf(mh.h_list[i], [game], opp_h, costs)
             end
         end
         rules[treat][role] = mh
@@ -172,11 +206,13 @@ function optimize_rule_lambdas(mh_init, β₀, β₁, costs; treats = ["positive
 end
 
 costs = Costs(0.2, 0.2, 0.1, 1.)
-mh_default = MetaHeuristic([NashHeuristic(2.), JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(0., 2.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0.]);
+mh_default = MetaHeuristic([JointMax(2.), RowγHeuristic(2., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(0., 2.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0.]);
 
 
 
 mh = deepcopy(mh_default)
+β₀ = 0.5
+β₁ = 0.5
 res = optimize_rule_params(mh, β₀, β₁, costs)
 
 β₀, β₁, costs, mh = res
@@ -184,7 +220,9 @@ res = optimize_rule_params(mh, β₀, β₁, costs)
 print(game)
 play_distribution(mh, game)
 
-mh = optimize_rule_lambdas(mh, β₀, β₁, costs)
+# rule_loss(mh, β₀, β₁, costs)/(60*50)
+
+mh = optimize_rule_lambdas(mh, 0.5, 0.5, costs)
 
 mh
 
