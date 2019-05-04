@@ -1,14 +1,14 @@
 using Distributed
-using Serialization
-addprocs(96)
+addprocs()
 @everywhere begin
 
+    using Serialization
     include("model.jl")
 
     scale(x, low, high) = low + x * (high - low)
     logscale(x, low, high) = exp(scale(x, log(low), log(high)))
 
-    function transform(x)
+    function _transform(x)
         [
             logscale(x[1], 0.01, 0.25),
             logscale(x[2], 0.01, 0.4),
@@ -18,37 +18,33 @@ addprocs(96)
     end
 
     all_costs = map(1:1000) do i
-        Costs(transform(rand(4))...)
+        Costs(_transform(rand(4))...)
     end
 
     function try_costs(costs)
         try
             mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
-            common_logp = cross_validate(make_optimize(mh_base, costs), test, common_data; k=10)
-            competing_logp = cross_validate(make_optimize(mh_base, costs), test, competing_data; k=10)
-            mean([common_logp; competing_logp])
+            train = make_optimize(mh_base, costs)
+            model = train(common_data[train_indices])
+            test(model, common_data[test_indices])
         catch
             Inf
         end
     end
 
+    uuid() = string(rand(1:100000000), base=62)
+
+    dir = "results/random_search2/"
 end # @everywhere
 
-results = pmap(try_costs, all_costs)
-
-open("results/random_search", "w+") do f
-    serialize(f, (
-        all_costs=all_costs,
-        loss=results
-    ))
+if !isdir(dir)
+    mkdir(dir)
 end
 
-
-all_costs, losses = open(deserialize, "results/random_search")
-xx = map(losses) do x
-    isnan(x) ? Inf : x
+results = pmap(all_costs) do costs
+    res = (costs=costs, loss=try_costs(costs))
+    open("$dir/$(uuid())", "w+") do f
+        serialize(f, res)
+    end
+    res
 end
-
-all_costs[argmin(xx)]
-
-try_costs(Costs(0.1, 0.1, 0.2, 0.8))
