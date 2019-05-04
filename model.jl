@@ -1,4 +1,4 @@
-# using Flux
+using Flux
 # using Flux: @epochs
 # using Flux.Tracker
 # using Flux.Tracker: grad, update!
@@ -24,11 +24,8 @@ end
 # %% Load the data
 ###########################################################################
 
-# particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
-# individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
 competing_games_df = CSV.read("data/processed/e3jydlve_play_distributions.csv");
 common_games_df = CSV.read("data/processed/nlesp5ss_play_distributions.csv");
-
 
 # %% General loss functions
 loss(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
@@ -51,36 +48,40 @@ comparison_idx = [31, 34, 38, 41, 44, 50]
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx; later_com]
 
-# function break_symmetry!(g::Game)
-#     if transpose(g.row) == g.col
-#         g.row[1] += 0.0001
-#     end
-# end
-
 parse_play(x) = float.(JSON.parse(replace(replace(x, ")" => "]"),  "(" => "[",)))
 function games_and_plays(df)
     row_plays = map(eachrow(df)) do x
         game = json_to_game(x.row_game)
+        game.row[1, 2] += 1e-5
+        game.col[1, 2] -= 1e-5
         # break_symmetry!(game)
         play_dist = parse_play(x.row_play)
         (game, play_dist)
     end
     col_plays = map(eachrow(df)) do x
         game = json_to_game(x.col_game)
+        game.row[2, 1] -= 1e-5
+        game.col[2, 1] += 1e-5
         # break_symmetry!(game)
         play_dist = parse_play(x.col_play)
         (game, play_dist)
     end
-    result = append!(row_plays, col_plays)
-    # Break the symetry for the one symetric game.
-    result[41][1].row[2] += 0.0001
-    result[41][1].col[2] -= 0.0001
-    result[91] = (transpose(result[41][1]), result[91][2])
-    result
+    append!(row_plays, col_plays)
 end
 
 const common_data = games_and_plays(common_games_df)
 const competing_data = games_and_plays(competing_games_df)
+const all_data = Dict(
+    "common" => common_data,
+    "competing" => competing_data
+)
+
+let
+    games = invert(competing_data)[1]
+    for i in 1:50
+        @assert transpose(games[i]) == games[50 + i]
+    end
+end
 
 # %% ====================  ====================
 
@@ -132,8 +133,7 @@ end
 # mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
 
 
-function make_fit(base_model::MetaHeuristic; n_iter=5)
-    @assert false # FIXME: need to pass costs!
+function make_fit(base_model::MetaHeuristic, costs::Costs; n_iter=5)
     data -> begin
         games, plays = invert(data)
         empirical_play = CacheHeuristic(games, plays);
@@ -146,7 +146,7 @@ function make_fit(base_model::MetaHeuristic; n_iter=5)
     end
 end
 
-function make_optimize(base_model::MetaHeuristic, costs=costs; n_iter=5)
+function make_optimize(base_model::MetaHeuristic, costs::Costs; n_iter=5)
     data -> begin
         games, plays = invert(data)
         empirical_play = CacheHeuristic(games, plays);
