@@ -10,7 +10,6 @@ res_df = CSV.read("res_df_from_pilot.csv")
 
 data_names = [:random, :neg_QCH, :pos_QCH, :opt_mh_neg, :opt_mh_pos, :fit_mh_neg, :fit_mh_pos, :opt_deep_neg, :opt_deep_pos, :fit_deep_neg,  :fit_deep_pos, :minimum]
 plots_vec = []
-
 for data_type in ["all", "train", "test", "comparison"], treat in ["negative", "positive"]
     vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
     ctg = [repeat(["minimum"], 5)..., repeat(["negative"], 5)..., repeat(["positive"], 5)..., repeat(["random"], 5)...]
