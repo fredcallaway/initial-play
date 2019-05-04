@@ -630,7 +630,7 @@ mutable struct QCH <: Heuristic
 end
 
 QCH(α_0, α_1, λ) = QCH(α_0, α_1, λ, λ, λ)
-QCH() = QCH(1., 1., 1.)
+QCH() = QCH(0.2, 0.5, 1.)
 
 function play_distribution(h::QCH, g::Game)
     level_0 = ones(Real, size(g))/size(g)
