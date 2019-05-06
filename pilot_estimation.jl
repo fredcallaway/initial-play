@@ -23,11 +23,11 @@ end
 
 # particapant_df = CSV.read("pilot/dataframes/participant_df.csv")
 # individal_choices_df = CSV.read("pilot/dataframes/individal_choices_df.csv")
-common_games_1_df = CSV.read("data/pilot/dataframes/positive_games_df.csv")
-competing_games_1_df = CSV.read("data/pilot/dataframes/negative_games_df.csv")
+common_games_1_df = CSV.read("data/processed/positive/pilot_pos_play_distributions.csv")
+common_games_2_df = CSV.read("data/processed/positive/nlesp5ss_play_distributions.csv");
+competing_games_1_df = CSV.read("data/processed/negative/pilot_neg_play_distributions.csv")
+competing_games_2_df = CSV.read("data/processed/negative/e3jydlve_play_distributions.csv");
 
-competing_games_2_df = CSV.read("data/processed/e3jydlve_play_distributions.csv");
-common_games_2_df = CSV.read("data/processed/nlesp5ss_play_distributions.csv");
 
 # comparison_idx = [31, 37, 41, 44, 49]
 # comparison_idx = [31, 34, 38, 41, 44, 50]
@@ -70,7 +70,7 @@ opt = ADAM(0.001, (0.9, 0.999))
 #%% common Treatment: Load the data
 ###########################################################################
 comparison_idx = [31, 37, 41, 44, 49, 131, 134, 138, 141, 144, 150]
-comparison_idx = [31, 34, 38, 41, 44, 50]
+# comparison_idx = [31, 34, 38, 41, 44, 50]
 
 later_com = 50 .+ comparison_idx
 comparison_idx = [comparison_idx..., later_com...]
@@ -98,19 +98,20 @@ end
 
 # pilot_pos_data = [(json_to_game(first(common_games_df[common_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :row_play])))) for i in 1:50];
 # append!(pilot_pos_data ,[(json_to_game(first(common_games_df[common_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(common_games_df[common_games_df.round .== i, :col_play])))) for i in 1:50]);
+games_and_plays(common_games_1_df)
 
-pilot_pos_data = games_and_plays(common_games_df)
+pilot_pos_data = [games_and_plays(common_games_1_df)..., games_and_plays(common_games_2_df)...]
 
 # By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
-pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.000001, pilot_pos_data[41][1].col .+ rand(3,3)*0.000001), pilot_pos_data[41][2])
-pilot_pos_data[91] = (transpose(pilot_pos_data[41][1]), pilot_pos_data[91][2])
+# pilot_pos_data[41] = (Game(pilot_pos_data[41][1].row .+ rand(3,3)*0.000001, pilot_pos_data[41][1].col .+ rand(3,3)*0.000001), pilot_pos_data[41][2])
+# pilot_pos_data[91] = (transpose(pilot_pos_data[41][1]), pilot_pos_data[91][2])
 
 
 pilot_pos_games = [d[1] for d in pilot_pos_data];
 pilot_pos_row_plays = [d[2] for d in pilot_pos_data];
-pilot_pos_col_plays = [pilot_pos_row_plays[51:100]..., pilot_pos_row_plays[1:50]...]
+pilot_pos_col_plays = [pilot_pos_row_plays[51:100]..., pilot_pos_row_plays[1:50]..., pilot_pos_row_plays[151:200]..., pilot_pos_row_plays[101:150]...]
 
-pilot_pos_n_train = 70;
+pilot_pos_n_train = 140;
 pilot_pos_train_idxs = sample(1:length(pilot_pos_games), pilot_pos_n_train; replace=false);
 pilot_pos_test_idxs = setdiff(1:length(pilot_pos_games), pilot_pos_train_idxs);
 # pilot_pos_train_idxs = setdiff(1:length(pilot_pos_games), comparison_idx)
@@ -173,10 +174,6 @@ min_loss(pilot_pos_data[comparison_idx])
 h_dists = [h_distribution(fit_mh_pos, g, pos_actual_h, costs) for g in pilot_pos_games];
 avg_h_dist = mean(h_dists)
 
-
-prediction_loss(fit_mh_pos, pilot_pos_games[[44, 94]], pos_actual_h, pos_actual_h, costs)
-
-play_distribution(fit_mh_pos, pilot_pos_games[50], pos_actual_h, costs)
 
 opt_mh_pos = deepcopy(mh_pos)
 for i in 1:n_fit_iter
@@ -267,7 +264,8 @@ println("clear print are")
 # pilot_neg_data = [(json_to_game(first(competing_games_df[competing_games_df.round .== i, :row])), convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :row_play])))) for i in 1:50];
 # append!(pilot_neg_data ,[(json_to_game(first(competing_games_df[competing_games_df.round .== i, :col])), convert(Vector{Float64}, JSON.parse(first(competing_games_df[competing_games_df.round .== i, :col_play])))) for i in 1:50]);
 
-pilot_neg_data = games_and_plays(competing_games_df)
+# pilot_neg_data = games_and_plays(competing_games_df)
+pilot_neg_data = [games_and_plays(competing_games_1_df)..., games_and_plays(competing_games_2_df)...]
 
 # By adding a minor random noise to the only symmetric game we can distinguish the game from the row and columns perspective
 # pilot_neg_data[41] = (Game(pilot_neg_data[41][1].row .+ rand(3,3)*0.01, pilot_neg_data[41][1].col .+ rand(3,3)*0.01), pilot_neg_data[41][2])
@@ -276,9 +274,9 @@ pilot_neg_data = games_and_plays(competing_games_df)
 
 pilot_neg_games = [d[1] for d in pilot_neg_data];
 pilot_neg_row_plays = [d[2] for d in pilot_neg_data];
-pilot_neg_col_plays = [pilot_neg_row_plays[51:100]..., pilot_neg_row_plays[1:50]...]
+pilot_neg_col_plays = [pilot_neg_row_plays[51:100]..., pilot_neg_row_plays[1:50]..., pilot_neg_row_plays[151:200]..., pilot_neg_row_plays[101:150]]
 
-pilot_neg_n_train = 70
+pilot_neg_n_train = 140
 pilot_neg_train_idxs = sample(1:length(pilot_neg_games), pilot_neg_n_train; replace=false)
 pilot_neg_test_idxs = setdiff(1:length(pilot_neg_games), pilot_neg_train_idxs)
 # pilot_neg_train_idxs = setdiff(1:length(pilot_neg_games), comparison_idx)
@@ -657,7 +655,13 @@ for treatment in ["Competing", "Common"]
         res_dict[:opt_mh_neg] = prediction_loss(opt_mh_neg, data["games"], actual)
         res_dict[:opt_mh_pos] = prediction_loss(opt_mh_pos, data["games"], actual)
         res_dict[:opt_deep_neg] = loss_no_norm_neg_opt(data["data"]).data
-        res_dict[:opt_deep_pos] = loss_no_norm_pos_opt(data["data"]).data
+        res_dict[:opt_deep_pos] = l
+data_names = [:random, :neg_QCH, :pos_QCH, :opt_mh_neg, :opt_mh_pos, :fit_mh_neg, :fit_mh_pos, :opt_deep_neg, :opt_deep_pos, :fit_deep_neg,  :fit_deep_pos, :minimum]
+plots_vec = []
+
+for data_type in ["all", "train", "test", "comparison"], treat in ["negative", "positive"]
+    vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
+    ctg = [repeat(["minimum"], 5)..., repeat(["negative"], 5)..., repeat(["positive"], 5)..., repeat(["random"], 5)...]oss_no_norm_pos_opt(data["data"]).data
         res_dict[:fit_deep_neg] = loss_no_norm_neg(data["data"]).data
         res_dict[:fit_deep_pos] = loss_no_norm_pos(data["data"]).data
         if length(names(res_df)) == 0

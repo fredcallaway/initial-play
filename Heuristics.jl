@@ -907,3 +907,52 @@ function min_hdist(h, games, opp_h, best_costs)
         minimum([h_distribution(h, game, opp_h, best_costs)[i] for game in exp_games])
     end
 end
+
+function json_to_game(s)
+    a = JSON.parse(s)
+    row = [convert(Float64, a[i][j][1]) for i in 1:length(a), j in 1:length(a[1])]
+    col = [convert(Float64, a[i][j][2]) for i in 1:length(a), j in 1:length(a[1])]
+    row_g = Game(row, col)
+end
+
+
+#%% Get and set lambdas
+function get_lambdas(h::Heuristic)
+    return [h.λ]
+end
+
+function set_lambdas!(h::Heuristic, x::Vector{T} where T <: Real)
+    h.λ = x[1]
+end
+
+function get_lambdas(h::RandomHeuristic)
+    return []
+end
+
+function set_lambdas!(h::RandomHeuristic, x::Vector{T} where T <: Real)
+    pass
+end
+
+function get_lambdas(h::SimHeuristic)
+    [h.λ for h in h.h_list]
+end
+
+function set_lambdas!(sh::SimHeuristic, x::Vector{T} where T <: Real)
+    for (h, val) in zip(sh.h_list, x)
+        h.λ = val
+    end
+end
+
+function get_lambdas(mh::MetaHeuristic)
+    [x for h in mh.h_list for x in get_lambdas(h)]
+end
+
+
+function set_lambdas!(mh::MetaHeuristic, x::Vector{T} where T <: Real)
+    idx = 1
+    for h in mh.h_list
+        set_lambdas!(h, x[idx:(idx+length(get_lambdas(h)) -1)])
+        idx = idx+length(get_lambdas(h))
+    end
+    mh
+end
