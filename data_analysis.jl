@@ -54,14 +54,14 @@ function write_play_distributions(df_wide_all, session_code)
 
     df[:row_game] = row
     df[:col_game] = col
-    df[:treatment] = participant_df.treatment[1]
+    df[:treatment] = treatment = participant_df.treatment[1]
 
     comparison = [31, 34, 38, 41, 44, 50]
     df[:type] = map(1:50) do i
         i in comparison ? "comparison" : "treatment"
     end
 
-    df |> CSV.write("data/processed/$(session_code)_play_distributions.csv")
+    df |> CSV.write("data/processed/$(treatment)/$(session_code)_play_distributions.csv")
 end
 
 raw_csv = "data/raw/all_apps_wide_2019-05-03.csv"
