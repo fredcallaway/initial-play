@@ -33,27 +33,23 @@ function rand(cs::Cost_Space, n::Int64)
     [rand(cs) for i in 1:n]
 end
 
-function make_fit(base_model::QCH, costs::Costs=Costs(0.1,0.1,0.2,0.8))
-    data -> begin
-        games, plays = invert(data)
-        empirical_play = CacheHeuristic(games, plays);
-        try
-            return fit_h!(deepcopy(base_model), games, empirical_play)
-        catch
-            deepcopy(base_model)
-        end
+function fit_model(base_model::QCH, data, costs::Costs=Costs(0.1,0.1,0.2,0.8))
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    try
+        return fit_h!(deepcopy(base_model), games, empirical_play)
+    catch
+        deepcopy(base_model)
     end
 end
 
-function make_optimize(base_model::QCH, costs::Costs=Costs(0.1,0.1,0.2,0.8))
-    data -> begin
-        games, plays = invert(data)
-        empirical_play = CacheHeuristic(games, plays);
-        try
-            return optimize_h!(deepcopy(base_model), games, empirical_play, costs)
-        catch
-            return deepcopy(base_model)
-        end
+function optimize_model(base_model::QCH, data, costs::Costs=Costs(0.1,0.1,0.2,0.8))
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    try
+        return optimize_h!(deepcopy(base_model), games, empirical_play, costs)
+    catch
+        return deepcopy(base_model)
     end
 end
 
@@ -70,30 +66,26 @@ end
 # mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
 
 
-function make_fit(base_model::MetaHeuristic, costs::Costs; n_iter=5)
-    data -> begin
-        games, plays = invert(data)
-        empirical_play = CacheHeuristic(games, plays);
-        model = deepcopy(base_model)
-        for i in 1:n_iter
-            fit_prior!(model, games, empirical_play, empirical_play, costs)
-            fit_h!(model, games, empirical_play, empirical_play, costs)
-        end
-        model
+function fit_model(base_model::MetaHeuristic, data, costs::Costs; n_iter=5)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    model = deepcopy(base_model)
+    for i in 1:n_iter
+        fit_prior!(model, games, empirical_play, empirical_play, costs)
+        fit_h!(model, games, empirical_play, empirical_play, costs)
     end
+    model
 end
 
-function make_optimize(base_model::MetaHeuristic, costs::Costs; n_iter=5)
-    data -> begin
-        games, plays = invert(data)
-        empirical_play = CacheHeuristic(games, plays);
-        model = deepcopy(base_model)
-        for i in 1:n_iter
-            optimize_h!(model, games, empirical_play, costs)
-            opt_prior!(model, games, empirical_play, costs)
-        end
-        model
+function optimize_model(base_model::MetaHeuristic, data, costs::Costs; n_iter=5)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    model = deepcopy(base_model)
+    for i in 1:n_iter
+        optimize_h!(model, games, empirical_play, costs)
+        opt_prior!(model, games, empirical_play, costs)
     end
+    model
 end
 
 ####################################################
@@ -145,35 +137,31 @@ end
 
 opt = ADAM(0.001, (0.9, 0.999))
 
-function make_optimize(base_model::Chain, costs::DeepCosts; n_iter=50)
-    data -> begin
-        games, plays = invert(data)
-        empirical_play = CacheHeuristic(games, plays);
-        model = deepcopy(base_model)
-        loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
-        loss(x::Game, y) = begin
-            pred_play = model(x)
-            -expected_payoff(pred_play, empirical_play, x) + costs(model, pred_play)
-        end
-        ps = Flux.params(model)
-        for i in 1:n_iter
-            Flux.train!(loss, ps, data, opt)
-        end
-        model
+function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=50)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    model = deepcopy(base_model)
+    loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
+    loss(x::Game, y) = begin
+        pred_play = model(x)
+        -expected_payoff(pred_play, empirical_play, x) + costs(model, pred_play)
     end
+    ps = Flux.params(model)
+    for i in 1:n_iter
+        Flux.train!(loss, ps, data, opt)
+    end
+    model
 end
 
-function make_fit(base_model::Chain, costs::DeepCosts; n_iter=50)
-    data -> begin
-        model = deepcopy(base_model)
-        loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
-        loss(x::Game, y) = Flux.crossentropy(model(x), y) + costs.γ*sum(norm, params(model))
-        ps = Flux.params(model)
-        for i in 1:n_iter
-            Flux.train!(loss, ps, data, opt)
-        end
-        model
+function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=50)
+    model = deepcopy(base_model)
+    loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
+    loss(x::Game, y) = Flux.crossentropy(model(x), y) + costs.γ*sum(norm, params(model))
+    ps = Flux.params(model)
+    for i in 1:n_iter
+        Flux.train!(loss, ps, data, opt)
     end
+    model
 end
 
 
@@ -181,14 +169,12 @@ end
 ##%% Rule Learning
 ####################################################################
 
-function make_fit(base_model::RuleLearning, costs::Costs; n_iter=1)
-    data -> begin
-        model = deepcopy(base_model)
-        model.costs = costs
-        for i in 1:n_iter
-            model = fit_βs_and_prior(model, data)
-            model = optimize_rule_lambdas(model, data)
-        end
-        model
+function fit_model(base_model::RuleLearning, data, costs::Costs; n_iter=1)
+    model = deepcopy(base_model)
+    model.costs = costs
+    for i in 1:n_iter
+        model = fit_βs_and_prior(model, data)
+        model = optimize_rule_lambdas(model, data)
     end
+    model
 end

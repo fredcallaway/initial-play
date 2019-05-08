@@ -103,10 +103,16 @@ end
 
 function run_train_test(model, data::Data, train_idx::Vector{Int64}, test_idx::Vector{Int64}, mode::Symbol, cs::Union{Cost_Space, DeepCostSpace}, n::Int64; parallel=true)
     costs_vec  = rand(cs, n)
-    map_over_vec = [(model, c, data[train_idx]) for c in costs_vec]
     mymap = parallel ? pmap : map
-    make_f = mode == :fit ? make_fit : make_optimize
-    res_model = mymap(x -> make_f(x[1], x[2])(x[3]), map_over_vec)
+    train = Dict(
+        :fit => fit_model,
+        :optimize => optimize_model
+    )[mode]
+
+    res_model = mymap(costs_vec) do costs
+        train(model, data[train_idx], costs)
+    end
+
     perfs = map(i -> prediction_loss(res_model[i], data[train_idx], costs_vec[i]), 1:n)
     perfs = map(x -> isnan(x) ? Inf : x, perfs)
     best_idx = argmin(perfs)
