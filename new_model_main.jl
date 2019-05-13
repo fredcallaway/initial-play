@@ -183,7 +183,7 @@ rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
 
 
 #%% Run
-n_runs = 64
+n_runs = 64*4
 mh_costs_vec  = rand(cs, n_runs)
 deep_costs_vec  = rand(deep_cs, n_runs)
 
@@ -209,18 +209,17 @@ res_dict[:fit_rl_cv] = pop_cross_validation(rl_base, neg_data, pos_data, :fit, m
 serialize(save_file, res_dict)
 res_dict[:fit_mh_cv] = pop_cross_validation(mh_base, neg_data, pos_data, :fit, mh_costs_vec)
 serialize(save_file, res_dict)
-res_dict[:fig_qch_cv] = pop_cross_validation(qch_base, neg_data, pos_data, :fit, mh_costs_vec)
+res_dict[:fit_qch_cv] = pop_cross_validation(qch_base, neg_data, pos_data, :fit, mh_costs_vec)
 serialize(save_file, res_dict)
 res_dict[:fit_deep_cv] = pop_cross_validation(deep_base, neg_data, pos_data, :fit, deep_costs_vec)
 serialize(save_file, res_dict)
 
 res_dict[:opt_mh_cv] = pop_cross_validation(mh_base, neg_data, pos_data, :opt, mh_costs_vec)
 serialize(save_file, res_dict)
-res_dict[:fig_qch_cv] = pop_cross_validation(qch_base, neg_data, pos_data, :opt, mh_costs_vec)
+res_dict[:opt_qch_cv] = pop_cross_validation(qch_base, neg_data, pos_data, :opt, mh_costs_vec)
 serialize(save_file, res_dict)
 res_dict[:opt_deep_cv] = pop_cross_validation(deep_base, neg_data, pos_data, :opt, deep_costs_vec)
 serialize(save_file, res_dict)
-
 
 ######################################################
 #%% Generate Data Frame
