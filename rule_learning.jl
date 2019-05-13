@@ -56,6 +56,34 @@ function rule_loss(rl::RuleLearning, data)
     return pred_loss/length(data)
 end
 
+function rule_loss_idx(rl::RuleLearning, data, idx)
+    data_dict = gen_data_dict(data)
+    opp_h_dict = gen_opp_h_dict(data_dict)
+    pred_loss = 0
+    l_num = 0
+    for treat in keys(data_dict), role in ["row", "col"]
+        mh = deepcopy(rl.mh)
+        loss_idx = filter(x -> (x > (treat - 1)*100 && x <= (treat -1)*100 + 50), idx)
+        opp_role = role == "row" ? "col" : "row"
+        opp_h = opp_h_dict[treat][opp_role]
+        actual_h = opp_h_dict[treat][role]
+        actual_h = opp_h_dict[treat][role]
+        for r in 1:50
+            game = data_dict[treat][role][r]["game"]
+            for i in 1:length(mh.h_list)
+                mh.prior[i] = rl.β₀ * mh.prior[i] + rl.β₁ * perf(mh.h_list[i], [game], opp_h, rl.costs)
+            end
+            # pred_loss = pred_loss + prediction_loss_no_RI(mh, [game], actual_h, rl.costs) # This is to get sum of loss instead of average
+            if r in loss_idx
+                pred_loss = pred_loss + prediction_loss(mh, [game], actual_h, opp_h, rl.costs) # This is to get sum of loss instead of average
+                l_num += 1
+            end
+        end
+    end
+    return pred_loss/l_num
+end
+
+
 
 function end_rules(rl::RuleLearning, data)
     data_dict = gen_data_dict(data)
@@ -89,7 +117,7 @@ function prediction_loss_no_RI(h::MetaHeuristic, games::Vector{Game}, actual::He
     loss/length(games)
 end
 
-function fit_βs_and_prior(rl_base::RuleLearning, data)
+function fit_βs_and_prior(rl_base::RuleLearning, data, idx)
     data_dict = gen_data_dict(data)
     opp_h_dict = gen_opp_h_dict(data_dict)
     rl = deepcopy(rl_base)
@@ -98,7 +126,7 @@ function fit_βs_and_prior(rl_base::RuleLearning, data)
         rl.β₀ = x[1]
         rl.β₁ = x[2]
         rl.mh.prior = x[3:end]
-        return rule_loss(rl, data)
+        return rule_loss_idx(rl, data, idx)
     end
     res_x = Optim.minimizer(optimize(loss_f, init_x))
     rl.β₀ = res_x[1]
@@ -107,14 +135,14 @@ function fit_βs_and_prior(rl_base::RuleLearning, data)
     return rl
 end
 
-function optimize_rule_lambdas(rl_base::RuleLearning, data)
+function optimize_rule_lambdas(rl_base::RuleLearning, data, idx)
     data_dict = gen_data_dict(data)
     opp_h_dict = gen_opp_h_dict(data_dict)
     rl = deepcopy(rl_base)
     init_x = get_lambdas(rl.mh)
     function loss_f(x)
         set_lambdas!(rl.mh, x)
-        return rule_loss(rl, data)
+        return rule_loss_idx(rl, data, idx)
     end
     res_x = Optim.minimizer(optimize(loss_f, init_x))
     set_lambdas!(rl.mh, res_x)

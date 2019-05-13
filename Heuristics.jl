@@ -930,7 +930,7 @@ function get_lambdas(h::RandomHeuristic)
 end
 
 function set_lambdas!(h::RandomHeuristic, x::Vector{T} where T <: Real)
-    pass
+    nothing
 end
 
 function get_lambdas(h::SimHeuristic)

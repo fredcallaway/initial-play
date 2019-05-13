@@ -169,12 +169,24 @@ end
 ##%% Rule Learning
 ####################################################################
 
-function fit_model(base_model::RuleLearning, data, costs::Costs; n_iter=1)
+function fit_model(base_model::RuleLearning, data, idx, costs::Costs; n_iter=1)
     model = deepcopy(base_model)
     model.costs = costs
     for i in 1:n_iter
-        model = fit_βs_and_prior(model, data)
-        model = optimize_rule_lambdas(model, data)
+        model = fit_βs_and_prior(model, data, idx)
+        model = optimize_rule_lambdas(model, data, idx)
     end
     model
+end
+
+
+####################################################################
+##%% Multiple dispatch with learning
+####################################################################
+function fit_model(model, data, idx, costs)
+    fit_model(model, data[idx], costs)
+end
+
+function optimize_model(model, data, idx, costs)
+    optimize_model(model, data[idx], costs)
 end

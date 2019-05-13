@@ -655,13 +655,7 @@ for treatment in ["Competing", "Common"]
         res_dict[:opt_mh_neg] = prediction_loss(opt_mh_neg, data["games"], actual)
         res_dict[:opt_mh_pos] = prediction_loss(opt_mh_pos, data["games"], actual)
         res_dict[:opt_deep_neg] = loss_no_norm_neg_opt(data["data"]).data
-        res_dict[:opt_deep_pos] = l
-data_names = [:random, :neg_QCH, :pos_QCH, :opt_mh_neg, :opt_mh_pos, :fit_mh_neg, :fit_mh_pos, :opt_deep_neg, :opt_deep_pos, :fit_deep_neg,  :fit_deep_pos, :minimum]
-plots_vec = []
-
-for data_type in ["all", "train", "test", "comparison"], treat in ["negative", "positive"]
-    vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
-    ctg = [repeat(["minimum"], 5)..., repeat(["negative"], 5)..., repeat(["positive"], 5)..., repeat(["random"], 5)...]oss_no_norm_pos_opt(data["data"]).data
+        res_dict[:opt_deep_pos] = loss_no_norm_pos_opt(data["data"]).data
         res_dict[:fit_deep_neg] = loss_no_norm_neg(data["data"]).data
         res_dict[:fit_deep_pos] = loss_no_norm_pos(data["data"]).data
         if length(names(res_df)) == 0
@@ -684,7 +678,7 @@ using StatsPlots
 pyplot()
 
 
-data_names = [:random, :fit_QCH_neg, :fit_QCH_pos, :opt_QCH_neg, :opt_QCH_pos, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :minimum]
+data_names = [:random, :fit_QCH_neg, :fit_QCH_pos, :opt_QCH_neg, :opt_QCH_pos, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :fit_rl_pos, :fit_rl_neq, :minimum]
 
 plots_vec = []
 for data_type in ["train", "test", "comparison"], treat in ["Common", "Competing"]
