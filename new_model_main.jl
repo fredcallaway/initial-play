@@ -273,22 +273,24 @@ for (treatment, data) in zip(["Competing", "Common"], [neg_data, pos_data])
             end
         end
     end
+
     for sym in cv_symbols
         for treat_data in ["neg", "pos"]
             train_dict[cat_syms(sym,treat_data,"std")] = Statistics.std(train_dict[cat_syms(sym,treat_data)])
-            train_dict[cat_syms(sym,treat_data),"mean"] = mean(train_dict[cat_syms(sym,treat_data)])
+            train_dict[cat_syms(sym,treat_data,"mean")] = mean(train_dict[cat_syms(sym,treat_data)])
             test_dict[cat_syms(sym,treat_data,"std")] = Statistics.std(test_dict[cat_syms(sym,treat_data)])
-            test_dict[cat_syms(sym,treat_data),"mean"] = mean(test_dict[cat_syms(sym,treat_data)])
+            test_dict[cat_syms(sym,treat_data,"mean")] = mean(test_dict[cat_syms(sym,treat_data)])
         end
     end
     if length(names(res_df)) == 0
-        res_df = DataFrame(train_dict)
-        push!(res_df, test_dict)
-    else
-        push!(res_df, train_dict)
-        push!(res_df, test_dict)
+        res_df = DataFrame(Dict(k=>typeof(v)[] for (k,v) in train_dict))
     end
+    push!(res_df, train_dict)
+    push!(res_df, test_dict)
 end
+
+sdaf = DataFrame( Dict(k=>typeof(v)[] for (k,v) in train_dict))
+push!(sdaf, train_dict)
 
 res_df
 
