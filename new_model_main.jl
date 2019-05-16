@@ -97,12 +97,16 @@ end
 function early_late_indices(data; n =30)
     train_idx = filter(x -> (x-1) % 50 < n, 1:length(data))
     test_idx = setdiff(1:length(data), train_idx)
+    test_idx = setdiff(test_idx, comparison_indices(data))
+    train_idx = setdiff(train_idx, comparison_indices(data))
     train_idx, test_idx
 end
 
 function leave_one_pop_out_indices(data, test_pop)
     test_idx = collect(1:100) .+ (test_pop-1)*100
     train_idx = setdiff(1:length(data), test_idx)
+    test_idx = setdiff(test_idx, comparison_indices(data))
+    train_idx = setdiff(train_idx, comparison_indices(data))
     train_idx, test_idx
 end
 
@@ -272,9 +276,9 @@ for (treatment, data) in zip(["Competing", "Common"], [neg_data, pos_data])
     for sym in cv_symbols
         for treat_data in ["neg", "pos"]
             train_dict[cat_syms(sym,treat_data,"std")] = Statistics.std(train_dict[cat_syms(sym,treat_data)])
-            train_dict[cat_syms(sym,treat_data)] = mean(train_dict[cat_syms(sym,treat_data)])
+            train_dict[cat_syms(sym,treat_data),"mean"] = mean(train_dict[cat_syms(sym,treat_data)])
             test_dict[cat_syms(sym,treat_data,"std")] = Statistics.std(test_dict[cat_syms(sym,treat_data)])
-            test_dict[cat_syms(sym,treat_data)] = mean(test_dict[cat_syms(sym,treat_data)])
+            test_dict[cat_syms(sym,treat_data),"mean"] = mean(test_dict[cat_syms(sym,treat_data)])
         end
     end
     if length(names(res_df)) == 0
@@ -288,6 +292,7 @@ end
 
 res_df
 
+CSV.write("results/LOO_results_to_plot.csv", res_df)
 serialize("saved_objects/res_df_cv",res_df)
 
 #%% Plot
@@ -579,34 +584,39 @@ pos_dist[1]*30
 ######################################################
 #%% Generate Data Frame For first/last
 ######################################################
-res_dict = deserialize("saved_objects/res_dict")
+res_dict_fl = deserialize("saved_objects/res_dict")
 
-res_df = DataFrame()
-first_last_symbols = [:fit_qch, :opt_qch, :fit_mh, :opt_mh, :fit_deep, :opt_deep, :fit_rl]
+res_df_fl = DataFrame()
+first_last_symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep, :fit_rl]
+
+comp_idx = comparison_indices(pos_data)
+train_idx, test_idx = early_late_indices(pos_data)
 
 function cat_syms(a, b; sep="_")
     Symbol(String(a)*sep*String(b))
 end
 
 for (treatment, data) in zip(["Competing", "Common"], [neg_data, pos_data])
-    for (data_type, idxs) in zip(["all", "train", "test", "comparison"], [collect(1:length(pos_data)), train_idx, test_idx, comp_idx])
+    for (data_type, idxs) in zip(["train", "test"], [train_idx, test_idx])
         row_dict = Dict{Any, Any}(:data_type => data_type, :treatment => treatment)
         row_dict[:random] = rand_loss(data[idxs])
         row_dict[:minimum] = min_loss(data[idxs])
         for sym in first_last_symbols
-            for (model, treat_data) in zip([res_dict[sym][:neg_model], res_dict[sym][:pos_model]], ["neg", "pos"])
-                row_dict[cat_syms(sym,treat_data)] = prediction_loss(model, data, idxs, res_dict[sym][:costs])
+            for (model, treat_data) in zip([res_dict_fl[sym][:neg_model], res_dict_fl[sym][:pos_model]], ["neg", "pos"])
+                row_dict[cat_syms(sym,treat_data)] = prediction_loss(model, data, idxs, res_dict_fl[sym][:costs])
             end
         end
-        if length(names(res_df)) == 0
-            res_df = DataFrame(row_dict)
+        if length(names(res_df_fl)) == 0
+            res_df_fl = DataFrame(row_dict)
         else
-            push!(res_df, row_dict)
+            push!(res_df_fl, row_dict)
         end
     end
 end
 
-serialize("saved_objects/res_df",res_df)
+
+CSV.write("results/fl_results_to_plot.csv", res_df_fl)
+serialize("saved_objects/res_df_fl",res_df_fl)
 
 
 ######################################################
