@@ -678,8 +678,6 @@ using StatsPlots
 pyplot()
 
 
-data_names = [:random, :fit_QCH_neg, :fit_QCH_pos, :opt_QCH_neg, :opt_QCH_pos, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :fit_rl_pos, :fit_rl_neq, :minimum]
-
 plots_vec = []
 for data_type in ["train", "test", "comparison"], treat in ["Common", "Competing"]
     vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), data_names]))
