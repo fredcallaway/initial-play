@@ -183,7 +183,7 @@ train_idx, test_idx = early_late_indices(pos_data)
 
 
 # %% Setup and run
-mh_base = MetaHeuristic([RandomHeuristic(), JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0.]);
+mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 qch_base = QCH(0.3, 0.3, 1.)
 cs = Cost_Space((0.5, 0.3), (0.5, 0.3), (0., 0.2), (0.5,2.5))
 
@@ -201,8 +201,8 @@ deep_costs_vec  = rand(deep_cs, n_runs)
 
 res_dict = Dict()
 save_file = "saved_objects/res_dict2"
-res_dict[:fit_rl] = run_train_test(rl_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
-serialize(save_file, res_dict)
+# res_dict[:fit_rl] = run_train_test(rl_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
+# serialize(save_file, res_dict)
 res_dict[:fit_mh] = run_train_test(mh_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
 serialize(save_file, res_dict)
 res_dict[:fit_qch] = run_train_test(qch_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
@@ -289,8 +289,6 @@ for (treatment, data) in zip(["Competing", "Common"], [neg_data, pos_data])
     push!(res_df, test_dict)
 end
 
-sdaf = DataFrame( Dict(k=>typeof(v)[] for (k,v) in train_dict))
-push!(sdaf, train_dict)
 
 res_df
 
@@ -303,10 +301,12 @@ using StatsPlots
 
 pyplot()
 
-keys_to_plot = [:random, :fit_mh_cv_neg, :fit_mh_cv_pos, :opt_mh_cv_neg, :opt_mh_cv_pos, :fit_deep_cv_neg,  :fit_deep_cv_pos, :opt_deep_cv_neg, :opt_deep_cv_pos, :minimum]
+keys_to_plot = [:random, :fit_mh_cv_neg_mean, :fit_mh_cv_pos_mean, :opt_mh_cv_neg_mean, :opt_mh_cv_pos_mean, :fit_deep_cv_neg_mean,  :fit_deep_cv_pos_mean, :opt_deep_cv_neg_mean, :opt_deep_cv_pos_mean, :minimum]
 
 plots_vec = []
 for data_type in ["train", "test"], treat in ["Competing", "Common"]
+    data_type = "train"
+    tret = "Competing"
     vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), keys_to_plot]))
     ctg = [repeat(["competing"], 4)..., repeat(["commmon"], 4)...]
     nam = [repeat(["fit mh", "opt mh", "fit deep", "opt deep"],2)...]
@@ -468,11 +468,6 @@ fit_mh_neg = deepcopy(full_data_res_dict[:fit_mh][:neg_model])
 opt_mh_pos = deepcopy(full_data_res_dict[:opt_mh][:pos_model])
 opt_mh_neg = deepcopy(full_data_res_dict[:opt_mh][:neg_model])
 
-for h in [fit_mh_pos, fit_mh_neg, opt_mh_pos, opt_mh_neg]
-    h.h_list = h.h_list[2:end]
-    h.prior = h.prior[2:end]
-end
-
 opt_costs = full_data_res_dict[:opt_mh][:costs]
 fit_costs = full_data_res_dict[:fit_mh][:costs]
 
@@ -589,7 +584,7 @@ pos_dist[1]*30
 res_dict_fl = deserialize("saved_objects/res_dict")
 
 res_df_fl = DataFrame()
-first_last_symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep, :fit_rl]
+first_last_symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep]
 
 comp_idx = comparison_indices(pos_data)
 train_idx, test_idx = early_late_indices(pos_data)
@@ -632,26 +627,26 @@ using StatsPlots
 
 pyplot()
 
-keys_to_plot = [:random, :fit_qch_neg, :fit_qch_pos, :opt_qch_neg, :opt_qch_pos, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :fit_rl_neg, :fit_rl_pos, :minimum]
+keys_to_plot = [:random, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :minimum]
 
 plots_vec = []
-for data_type in ["train", "test", "comparison"], treat in ["Competing", "Common"]
-    vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), keys_to_plot]))
-    ctg = [repeat(["competing"], 7)..., repeat(["commmon"], 7)...]
-    nam = [repeat(["fit qch", "opt qch", "fit mh", "opt mh", "fit deep", "opt deep", "fit rl"],2)...]
-    bar_vals = hcat(transpose(reshape(vals[2:(end-1)], (2,7))))
+for data_type in ["train", "test"], treat in ["Competing", "Common"]
+    vals = convert(Vector, first(res_df_fl[(res_df_fl.treatment .== treat) .& (res_df_fl.data_type .== data_type), keys_to_plot]))
+    ctg = [repeat(["competing"], 4)..., repeat(["commmon"], 4)...]
+    nam = [repeat(["fit mh", "opt mh", "fit deep", "opt deep"],2)...]
+    bar_vals = hcat(transpose(reshape(vals[2:(end-1)], (2,4))))
     plt = groupedbar(nam, bar_vals, group=ctg, lw=0, framestyle = :box, title = treat*" interest "*data_type*" games", ylims=(0,1.3))
     plot!([vals[1]], linetype=:hline, width=2, label="random loss", color=:grey)
-    plot!([vals[16]], linetype=:hline, width=2, label="min loss", color=:black)
+    plot!([vals[2*4 + 2]], linetype=:hline, width=2, label="min loss", color=:black)
     push!(plots_vec, plt)
 end
 
 length(plots_vec)
-plot(plots_vec..., layout=(3,2), size=(794,1123))
+plot(plots_vec..., layout=(2,2), size=(794,1123))
 
-savefig("../overleaf/figs/loglikelihoods.png")
+savefig("../overleaf/figs/loglikelihoods_fl.png")
 
-res_df
+res_df_fl
 
 #= Analysis Plan
 
