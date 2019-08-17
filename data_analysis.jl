@@ -64,8 +64,10 @@ function write_play_distributions(df_wide_all, session_code)
     df |> CSV.write("data/processed/$(treatment)/$(session_code)_play_distributions.csv")
 end
 
-raw_csv = "data/raw/all_apps_wide_2019-05-03.csv"
 # raw_csv = "data/pilot/all_apps_wide_2019-04-06.csv"
+# raw_csv = "data/raw/all_apps_wide_2019-05-03.csv"
+raw_csv = "data/raw/all_apps_wide_2019-08-16.csv"
+
 df_wide_all = CSV.read(raw_csv);
 names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)));
 for (code,n) in countmap(df_wide_all.session_code)
