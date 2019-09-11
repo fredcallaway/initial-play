@@ -7,7 +7,7 @@ using SplitApplyCombine
 include("Heuristics.jl")
 
 function write_play_distributions(df_wide_all, session_code)
-    names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)))
+    # names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)))
 
     n_page = maximum(df_wide_all.participant__index_in_pages)
     keep = ((df_wide_all.participant__index_in_pages .== n_page) .&
@@ -22,6 +22,8 @@ function write_play_distributions(df_wide_all, session_code)
          session_code = row.session_code)
     end |> DataFrame
 
+
+
     getvar(name, i) = Symbol("normal_form_games_" * string(i) * "_player_" * string(name))
 
     individal_choices_df = mapmany(eachrow(df_wide)) do row
@@ -34,7 +36,11 @@ function write_play_distributions(df_wide_all, session_code)
              choice = row[getvar(:choice, i)],
              other_choice = row[getvar(:other_choice, i)])
         end
-    end |> DataFrame
+    end
+
+    #Bugfix, for some reason I had to do this even though it worked before as with participant_df | Gustav 2019-08-27
+    individal_choices_df = convert(Array{typeof(individal_choices_df[1])}, individal_choices_df) |> DataFrame
+
 
     x = by(individal_choices_df, [:round, :role],
         :choice => x -> Tuple(counts(x, 0:2) ./ length(x))
@@ -56,7 +62,7 @@ function write_play_distributions(df_wide_all, session_code)
     df[:col_game] = col
     df[:treatment] = treatment = participant_df.treatment[1]
 
-    comparison = [31, 34, 38, 41, 44, 50]
+    comparison = [31, 38, 42, 49]
     df[:type] = map(1:50) do i
         i in comparison ? "comparison" : "treatment"
     end
@@ -66,7 +72,8 @@ end
 
 # raw_csv = "data/pilot/all_apps_wide_2019-04-06.csv"
 # raw_csv = "data/raw/all_apps_wide_2019-05-03.csv"
-raw_csv = "data/raw/all_apps_wide_2019-08-16.csv"
+# raw_csv = "data/raw/all_apps_wide_2019-08-22.csv"
+raw_csv = "data/raw/all_apps_wide_2019-09-01.csv"
 
 df_wide_all = CSV.read(raw_csv);
 names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)));

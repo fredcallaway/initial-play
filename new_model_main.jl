@@ -14,13 +14,12 @@ using Statistics
 include("Heuristics.jl")
 
 
-addprocs(Sys.CPU_THREADS)
+addprocs(Sys.CPU_THREADS - 1)
 @everywhere begin
     include("Heuristics.jl")
     include("rule_learning.jl")
     include("new_model.jl")
 end
-
 
 # %% ====================  ====================
 @everywhere Data = Array{Tuple{Game,Array{Float64,1}},1}
@@ -87,9 +86,10 @@ end
 
 # %% ==================== Train test subsetting ====================
 function comparison_indices(data)
-    comparison_idx = [31, 34, 38, 41, 44, 50, 131, 137, 141, 144, 149]
-    later_com = 50 .+ comparison_idx
-    comparison_idx = [comparison_idx..., later_com...]
+    comparison_idx = [31, 38, 42, 49]
+    comparison_idx = vcat([comparison_idx .+ 50*i for i in 0:40]...)
+    # later_com = 50 .+ comparison_idx
+    # comparison_idx = [comparison_idx..., later_com...]
     comparison_idx = filter(x -> x <= length(data), comparison_idx)
     sort(comparison_idx)
 end
@@ -171,11 +171,12 @@ end
 
 
 
+
+
 # %% =============== Load data  =======================
 pos_data = load_treatment_data("positive")
 neg_data = load_treatment_data("negative")
 all_data = [pos_data; neg_data]
-
 
 
 comp_idx = comparison_indices(pos_data)
@@ -185,22 +186,23 @@ train_idx, test_idx = early_late_indices(pos_data)
 # %% Setup and run
 mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 qch_base = QCH(0.3, 0.3, 1.)
-cs = Cost_Space((0.5, 0.3), (0.5, 0.3), (0., 0.2), (0.5,2.5))
+cs = Cost_Space((0.05, 0.3), (0.05, 0.3), (0., 0.2), (0.5,2.5))
 
-deep_base = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
+# deep_base = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
+deep_base = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
 deep_cs = DeepCostSpace((0.001,0.01), (0.2, 0.5), (0.0, 0.3))
 
 rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
 
 
 #%% Run
-n_runs = 64*4
+n_runs = 64
 mh_costs_vec  = rand(cs, n_runs)
 deep_costs_vec  = rand(deep_cs, n_runs)
 
 
 res_dict = Dict()
-save_file = "saved_objects/res_dict2"
+save_file = "saved_objects/res_dict4"
 # res_dict[:fit_rl] = run_train_test(rl_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
 # serialize(save_file, res_dict)
 res_dict[:fit_mh] = run_train_test(mh_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
@@ -216,6 +218,7 @@ serialize(save_file, res_dict)
 res_dict[:opt_deep] = run_train_test(deep_base, neg_data, pos_data, train_idx, test_idx, :opt, deep_costs_vec)
 serialize(save_file, res_dict)
 
+#%%
 # res_dict[:fit_rl_cv] = pop_cross_validation(rl_base, neg_data, pos_data, :fit, mh_costs_vec)
 # serialize(save_file, res_dict)
 res_dict[:fit_qch_cv] = pop_cross_validation(qch_base, neg_data, pos_data, :fit, mh_costs_vec)
@@ -235,9 +238,9 @@ serialize(save_file, res_dict)
 ######################################################
 #%% Generate Data Frame For Leave One Population Out
 ######################################################
-res_dict = deserialize("saved_objects/res_dict2")
+res_dict = deserialize("saved_objects/res_dict4")
 
-res_dict[:fit_mh_cv][1]
+
 
 cv_symbols = [:fit_mh_cv, :opt_mh_cv, :fit_deep_cv, :opt_deep_cv]
 
@@ -295,18 +298,65 @@ res_df
 CSV.write("results/LOO_results_to_plot.csv", res_df)
 serialize("saved_objects/res_df_cv",res_df)
 
+######################################################
+#%% Generate Data Frame For First Last Train Test data
+######################################################
+res_dict = deserialize("saved_objects/res_dict4")
+
+
+
+symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep]
+
+function cat_syms(a, b; sep="_")
+    Symbol(String(a)*sep*String(b))
+end
+function cat_syms(a, b, c; sep="_")
+    Symbol(String(a)*sep*String(b)*sep*String(c))
+end
+
+
+res_df = DataFrame()
+for (treatment, data) in zip(["Competing", "Common"], [neg_data, pos_data])
+    train_dict = Dict{Symbol, Any}(:treatment => treatment, :data_type => "train")
+    test_dict = Dict{Symbol, Any}(:treatment => treatment, :data_type => "test")
+    train_dict[:random] = rand_loss(data)
+    train_dict[:minimum] = min_loss(data)
+    test_dict[:random] = rand_loss(data)
+    test_dict[:minimum] = min_loss(data)
+    train_idx, test_idx = early_late_indices(pos_data)
+    for sym in symbols
+        for (model, treat_data) in zip([res_dict[sym][:neg_model], res_dict[sym][:pos_model]], ["neg", "pos"])
+            train_dict[cat_syms(sym,treat_data)] = prediction_loss(model, data, train_idx, res_dict[sym][:costs])
+            test_dict[cat_syms(sym,treat_data)] = prediction_loss(model, data, test_idx, res_dict[sym][:costs])
+        end
+    end
+
+    if length(names(res_df)) == 0
+        res_df = DataFrame(Dict(k=>typeof(v)[] for (k,v) in train_dict))
+    end
+    push!(res_df, train_dict)
+    push!(res_df, test_dict)
+end
+
+
+res_df
+
+CSV.write("results/FirstLast_results_to_plot.csv", res_df)
+serialize("saved_objects/res_df_FL",res_df)
 #%% Plot
+res_df = deserialize("saved_objects/res_df_FL")
+
 using Plots
 using StatsPlots
-
+# ENV["PYTHON"]=""
+# Pkg.build("PyCall")
 pyplot()
 
-keys_to_plot = [:random, :fit_mh_cv_neg_mean, :fit_mh_cv_pos_mean, :opt_mh_cv_neg_mean, :opt_mh_cv_pos_mean, :fit_deep_cv_neg_mean,  :fit_deep_cv_pos_mean, :opt_deep_cv_neg_mean, :opt_deep_cv_pos_mean, :minimum]
+keys_to_plot = [:random, :fit_mh_neg, :fit_mh_pos, :opt_mh_neg, :opt_mh_pos, :fit_deep_neg,  :fit_deep_pos, :opt_deep_neg, :opt_deep_pos, :minimum]
+# keys_to_plot = [:random, :fit_mh_cv_neg_mean, :fit_mh_cv_pos_mean, :opt_mh_cv_neg_mean, :opt_mh_cv_pos_mean, :fit_deep_cv_neg_mean,  :fit_deep_cv_pos_mean, :opt_deep_cv_neg_mean, :opt_deep_cv_pos_mean, :minimum]
 
 plots_vec = []
 for data_type in ["train", "test"], treat in ["Competing", "Common"]
-    data_type = "train"
-    tret = "Competing"
     vals = convert(Vector, first(res_df[(res_df.treatment .== treat) .& (res_df.data_type .== data_type), keys_to_plot]))
     ctg = [repeat(["competing"], 4)..., repeat(["commmon"], 4)...]
     nam = [repeat(["fit mh", "opt mh", "fit deep", "opt deep"],2)...]
@@ -319,6 +369,7 @@ end
 
 length(plots_vec)
 plot(plots_vec..., layout=(2,2), size=(794,1000))
+
 
 savefig("../overleaf/figs/loglikelihoods.png")
 
@@ -347,6 +398,8 @@ serialize(save_file_full, full_data_res_dict)
 
 # Generate DF
 full_data_res_dict_load = deserialize(save_file_full)
+# full_data_res_dict_load = deepcopy(res_dict)
+full_data_res_dict = deepcopy(res_dict)
 
 
 function expected_payoff(h::Chain, opponent::Heuristic, g::Game)
@@ -415,16 +468,20 @@ end
 rand_dict = Dict{Symbol, Any}(:model => :Random)
 max_dict = Dict{Symbol, Any}(:model => :Maximum)
 actual_dict = Dict{Symbol, Any}(:model => :Actual)
-for (data_name, data) in zip([:Common, :Competing], [pos_data, neg_data])
-    m_sym = cat_syms(treat, :model)
-    m = full_data_res_dict[fit_type][m_sym]
-    costs = full_data_res_dict[fit_type][:costs]
-    games, plays = invert(data);
-    empirical_play = CacheHeuristic(games, plays);
-    max_dict[data_name] = mean([max_payoff(empirical_play, g) for g in games])
-    rand_dict[data_name] = mean([rand_payoff(empirical_play, g) for g in games])
-    actual_dict[data_name] = mean([expected_payoff(empirical_play, empirical_play, g) for g in games])
-end
+# for fit_type in [:Random, :Maximum, :Actual]
+#     for treat in [:neg, :pos]
+        for (data_name, data) in zip([:Common, :Competing], [pos_data, neg_data])
+            # m_sym = cat_syms(treat, :model)
+            # m = full_data_res_dict[fit_type][m_sym]
+            # costs = full_data_res_dict[fit_type][:costs]
+            games, plays = invert(data);
+            empirical_play = CacheHeuristic(games, plays);
+            max_dict[data_name] = mean([max_payoff(empirical_play, g) for g in games])
+            rand_dict[data_name] = mean([rand_payoff(empirical_play, g) for g in games])
+            actual_dict[data_name] = mean([expected_payoff(empirical_play, empirical_play, g) for g in games])
+        end
+#     end
+# end
 push!(payoff_df, rand_dict)
 push!(payoff_df, actual_dict)
 push!(payoff_df, max_dict)
@@ -455,6 +512,7 @@ latex_tabular("./../overleaf/tex_snippets/payoff_new.tex",
                Rule(),           # a nice \hline to make it ugly
                res_mat,
                # vec(gen_row(:Random)), # ragged!
+               vec(gen_row(:Random)), # ragged!
                vec(gen_row(:Actual)), # ragged!
                Rule(),
                vec(gen_row(:Maximum)),
@@ -537,12 +595,22 @@ pos_empirical_play = CacheHeuristic(pos_games, pos_plays);
 neg_games, neg_plays = invert(neg_data);
 neg_empirical_play = CacheHeuristic(neg_games, neg_plays);
 
+idx = 49
+indicies = [idx + 50*i for i in 0:11]
 
-idx = 131
-pos_dist = (pos_plays[idx] .+ pos_plays[idx + 50] .+ 0.01)./2.03
-neg_dist = (neg_plays[idx] .+ neg_plays[idx + 50] .+ 0.01)./2.03
+pos_dist = sum(pos_plays[indicies])/length(indicies)
+neg_dist = sum(neg_plays[indicies])/length(indicies)
 
-ChisqTest(round.(Int, pos_dist .*30), neg_dist)
+# pos_dist = (pos_plays[idx] .+ pos_plays[idx + 50] .+ 0.01)./2.03
+# neg_dist = (neg_plays[idx] .+ neg_plays[idx + 50] .+ 0.01)./2.03
+
+ChisqTest(round.(Int, neg_dist .*180), pos_dist)
+ChisqTest(round.(Int, pos_dist .*180), neg_dist)
+
+pos_dist'*pos_games[idx].row*pos_dist
+neg_dist'*neg_games[idx].row*neg_dist
+
+
 
 i = idx
 [((neg_dist[i]*28 - 28*pos_dist[i])^2)/28*pos_dist[i] for i in 1:3] |> sum
@@ -567,7 +635,9 @@ pos_dist[1]*30
 
 
 
-
+index = 31
+expected_payoff(pos_empirical_play, pos_empirical_play, pos_games[index])
+expected_payoff(neg_empirical_play, neg_empirical_play, neg_games[index])
 
 
 
@@ -581,11 +651,11 @@ pos_dist[1]*30
 ######################################################
 #%% Generate Data Frame For first/last
 ######################################################
-res_dict_fl = deserialize("saved_objects/res_dict")
+res_dict_fl = deserialize("saved_objects/res_dict4")
 
 res_df_fl = DataFrame()
 first_last_symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep]
-
+res_df_fl
 comp_idx = comparison_indices(pos_data)
 train_idx, test_idx = early_late_indices(pos_data)
 
@@ -615,6 +685,26 @@ end
 CSV.write("results/fl_results_to_plot.csv", res_df_fl)
 serialize("saved_objects/res_df_fl",res_df_fl)
 
+######################################################
+#%% Simple compare of payoffs for model estimated on first
+data_mod = :opt_mh
+fit_mh_neg = res_dict_fl[data_mod][:neg_model]
+fit_mh_pos = res_dict_fl[data_mod][:pos_model]
+
+costs = full_data_res_dict[data_mod][:costs]
+
+no_comparison_idx = setdiff(1:200, comp_idx)
+
+games, plays = invert(neg_data[no_comparison_idx]);
+empirical_play = CacheHeuristic(games, plays);
+mean([expected_payoff(fit_mh_neg, empirical_play, g, costs) for g in games])
+mean([expected_payoff(fit_mh_pos, empirical_play, g, costs) for g in games])
+mean([perf(fit_mh_pos, [g], empirical_play, costs) for g in games])
+mean([perf(fit_mh_neg, [g], empirical_play, costs) for g in games])
+
+
+
+
 
 ######################################################
 #%%
@@ -642,7 +732,7 @@ for data_type in ["train", "test"], treat in ["Competing", "Common"]
 end
 
 length(plots_vec)
-plot(plots_vec..., layout=(2,2), size=(794,1123))
+plot(plots_vec..., layout=(2,2), size=(1000,1000))
 
 savefig("../overleaf/figs/loglikelihoods_fl.png")
 
@@ -658,3 +748,31 @@ res_df_fl
 5. Fit RuleLearning
 
 =#
+
+#%% Generate combined data for heatmap and marginal distributions plotting
+pos_df = DataFrame()
+neg_df = DataFrame()
+pos_games, pos_plays = invert(pos_data);
+neg_games, neg_plays = invert(neg_data);
+for i in [31, 38, 42, 49]
+    row_idx = filter(x -> x%100 == i, 1:length(pos_data))
+    col_idx = filter(x -> (x-50)%100 == i, 1:length(pos_data))
+    pos_row_play = mean([pos_plays[i] for i in row_idx])
+    pos_col_play = mean([pos_plays[i] for i in col_idx])
+    neg_row_play = mean([neg_plays[i] for i in row_idx])
+    neg_col_play = mean([neg_plays[i] for i in col_idx])
+    g = pos_games[i]
+    g = [[Int(round(g.row[j,i])), Int(round(g.col[j,i]))] for i in 1:3, j in 1:3]
+    pos_dict = Dict(:round => i, :row_play => JSON.json(Tuple(pos_row_play)), :col_play => JSON.json(Tuple(pos_col_play)), :row_game => JSON.json(g), :col_game => JSON.json(g), :treatment => "positive", :type => "comparison")
+    neg_dict = Dict(:round => i, :row_play => JSON.json(Tuple(neg_row_play)), :col_play => JSON.json(Tuple(neg_col_play)), :row_game => JSON.json(g), :col_game => JSON.json(g), :treatment => "negative", :type => "comparison")
+    if length(names(pos_df)) == 0
+        pos_df = DataFrame(pos_dict)
+        neg_df = DataFrame(neg_dict)
+    else
+        push!(pos_df, pos_dict)
+        push!(neg_df, neg_dict)
+    end
+end
+
+CSV.write("results/pos_to_plot.csv", pos_df)
+CSV.write("results/neg_to_plot.csv", neg_df)
