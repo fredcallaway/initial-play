@@ -137,7 +137,7 @@ end
 
 opt = ADAM(0.001, (0.9, 0.999))
 
-function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=50)
+function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
     model = deepcopy(base_model)
@@ -153,7 +153,7 @@ function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=50)
     model
 end
 
-function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=50)
+function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
     model = deepcopy(base_model)
     loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
     loss(x::Game, y) = Flux.crossentropy(model(x), y) + costs.γ*sum(norm, params(model))
