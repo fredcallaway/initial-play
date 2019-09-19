@@ -196,13 +196,14 @@ rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
 
 
 #%% Run
-n_runs = 64
+n_runs = 4*64
+n_runs_deep = 64
 mh_costs_vec  = rand(cs, n_runs)
-deep_costs_vec  = rand(deep_cs, n_runs)
+deep_costs_vec  = rand(deep_cs, n_runs_deep)
 
 
 res_dict = Dict()
-save_file = "saved_objects/res_dict4"
+save_file = "saved_objects/res_dict5"
 # res_dict[:fit_rl] = run_train_test(rl_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
 # serialize(save_file, res_dict)
 res_dict[:fit_mh] = run_train_test(mh_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
@@ -238,7 +239,7 @@ serialize(save_file, res_dict)
 ######################################################
 #%% Generate Data Frame For Leave One Population Out
 ######################################################
-res_dict = deserialize("saved_objects/res_dict4")
+res_dict = deserialize("saved_objects/res_dict5")
 
 
 
@@ -301,7 +302,7 @@ serialize("saved_objects/res_df_cv",res_df)
 ######################################################
 #%% Generate Data Frame For First Last Train Test data
 ######################################################
-res_dict = deserialize("saved_objects/res_dict4")
+res_dict = deserialize("saved_objects/res_dict5")
 
 
 
@@ -651,7 +652,7 @@ expected_payoff(neg_empirical_play, neg_empirical_play, neg_games[index])
 ######################################################
 #%% Generate Data Frame For first/last
 ######################################################
-res_dict_fl = deserialize("saved_objects/res_dict4")
+res_dict_fl = deserialize("saved_objects/res_dict5")
 
 res_df_fl = DataFrame()
 first_last_symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep]
