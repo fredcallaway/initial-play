@@ -190,3 +190,93 @@ end
 function optimize_model(model, data, idx, costs)
     optimize_model(model, data[idx], costs)
 end
+
+
+# %% ==================== Loading Data ====================
+@everywhere Data = Array{Tuple{Game,Array{Float64,1}},1}
+parse_play(x) = float.(JSON.parse(replace(replace(x, ")" => "]"),  "(" => "[",)))
+
+function load_data(file)::Data
+    file
+    df = CSV.read(file);
+    row_plays = Data()
+    col_plays = Data()
+    for row in eachrow(df)
+        row_game = json_to_game(row.row_game)
+        row_game.row[1,2] += rand()*1e-7 # This can't be a constant number if we want to
+        row_game.col[1,2] += rand()*1e-7 # separate behavior in comparison games in different treatments.
+        row_play_dist = parse_play(row.row_play)
+        col_game = transpose(row_game)
+        col_play_dist = parse_play(row.col_play)
+        push!(row_plays, (row_game, row_play_dist))
+        push!(col_plays, (col_game, col_play_dist))
+    end
+    append!(row_plays, col_plays)
+end
+
+function load_treatment_data(treatment)
+    files = glob("data/processed/$treatment/*_play_distributions.csv")
+    data = vcat(map(load_data, files)...)
+end
+
+# %% ==================== Loss functions ====================
+loss(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
+rand_loss(y) = Flux.crossentropy(ones(length(y))/length(y), y)
+
+loss_min(x::Vector{Float64}, y) = isnan(Flux.crossentropy(x, y)) ? Flux.crossentropy((x .+ 0.001)./1.003, (y .+ 0.001)./1.003) : Flux.crossentropy(x, y)
+loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
+loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
+min_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(y,y) for (g,y) in data])/length(data)
+rand_loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([rand_loss(y) for (g,y) in data])/length(data)
+
+function prediction_loss(model::MetaHeuristic, in_data::Data, idx, costs)
+    data = in_data[idx]
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    prediction_loss(model, games, empirical_play, empirical_play, costs)
+end
+
+function prediction_loss(model::Heuristic, in_data::Data, idx, costs)
+    data = in_data[idx]
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    prediction_loss(model, games, empirical_play)
+end
+
+function prediction_loss(model::Chain, in_data::Data, idx, costs)
+    data = in_data[idx]
+    loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
+    loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
+    loss_no_norm(data).data
+end
+
+function prediction_loss(model::RuleLearning, in_data::Data, idx, costs)
+    rule_loss_idx(model, in_data, idx)
+end
+
+
+# %% ==================== Train test subsetting ====================
+function comparison_indices(data)
+    comparison_idx = [31, 38, 42, 49]
+    comparison_idx = vcat([comparison_idx .+ 50*i for i in 0:40]...)
+    # later_com = 50 .+ comparison_idx
+    # comparison_idx = [comparison_idx..., later_com...]
+    comparison_idx = filter(x -> x <= length(data), comparison_idx)
+    sort(comparison_idx)
+end
+
+function early_late_indices(data; n =30)
+    train_idx = filter(x -> (x-1) % 50 < n, 1:length(data))
+    test_idx = setdiff(1:length(data), train_idx)
+    test_idx = setdiff(test_idx, comparison_indices(data))
+    train_idx = setdiff(train_idx, comparison_indices(data))
+    train_idx, test_idx
+end
+
+function leave_one_pop_out_indices(data, test_pop)
+    test_idx = collect(1:100) .+ (test_pop-1)*100
+    train_idx = setdiff(1:length(data), test_idx)
+    test_idx = setdiff(test_idx, comparison_indices(data))
+    train_idx = setdiff(train_idx, comparison_indices(data))
+    train_idx, test_idx
+end
