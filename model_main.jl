@@ -2,18 +2,18 @@ using Flux
 using JSON
 using CSV
 using DataFrames
-using DataFramesMeta
+# using DataFramesMeta
 using SplitApplyCombine
 using Random
 using Glob
 using Distributed
-using BSON
+# using BSON
 using Serialization
 using StatsBase
 using Statistics
 using Sobol
 
-addprocs(Sys.CPU_THREADS - 1)
+nprocs() == 1 && addprocs(Sys.CPU_THREADS - 1)
 include("Heuristics.jl")  # prevent LoadError: UndefVarError: Game not defined below
 @everywhere begin
     include("Heuristics.jl")
@@ -37,11 +37,25 @@ comp_idx = comparison_indices(all_data[:pos])
 @assert comparison_indices(all_data[:pos]) == comparison_indices(all_data[:neg])
 # %% ==================== Fitting costs ====================
 
+DEBUG = true
+DEBUG && @warn "DEBUG MODE: not computing loss"
+
+
+get_cost_type(model) = Costs
+get_cost_type(model::Chain) = DeepCosts
+@everywhere begin
+    get_cost_type(model) = Costs
+    get_cost_type(model::Chain) = DeepCosts
+end
+
+
+
 function make_loss(model, train::Function, space::Box; parallel=true)
     mymap = parallel ? pmap : map
 
     function loss(x)
-        costs = Costs(;space(x)...)
+        DEBUG && return sum(x)
+        costs = get_cost_type(model)(;space(x)...)
         mymap(values(all_data)) do data
             trained_model = train(model, data, train_idx, costs)
             prediction_loss(trained_model, data, train_idx, costs)
@@ -55,14 +69,15 @@ function init_points(dim, n);
     [next!(seq) for i in 1:n]
 end
 
-function fit_costs(model, train, space; n_sobol=500, n_gp=50)
-    f = make_loss(mh_base, optimize_model, mh_space; parallel=false)
+# function fit_costs(model, train, space; n_sobol=500, n_gp=50)
+function fit_costs(model, train, space; n_sobol=64, n_gp=5)
+    f = make_loss(model, optimize_model, space; parallel=false)
     xs = init_points(n_free(space), n_sobol)
     @time ys = pmap(f, xs)
     @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
 
-    f = make_loss(mh_base, optimize_model, mh_space; parallel=true)
-    costs = Costs(;mh_space(gp_opt.observed_optimizer)...)
+    f = make_loss(model, optimize_model, space; parallel=true)
+    costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
     trained_models = pmap(collect(all_data)) do (treat, data)
         treat => train(model, data, train_idx, costs)
     end |> Dict
@@ -73,29 +88,18 @@ end
 # %% ==================== MetaHeuristic ====================
 mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 mh_space = Box(
-    # :α => (0.05, 0.3, :log),
     :α => (0.05, 0.5, :log),
     :λ => (0.05, 0.3, :log),
     :level => (0., 0.2),
     :m_λ => (0.5,2.5, :log),
 )
 
-# mh_space = Box(
-#     :α => (0.05, 0.5, :log),
-#     :λ => (0.05, 0.5, :log),
-#     :level => (0., 0.5),
-#     :m_λ => (0.5,5, :log),
-# )
-
 results = Dict(
     :fit => fit_costs(mh_base, fit_model, mh_space)
     :opt => fit_costs(mh_base, optimize_model, mh_space)
 )
 
-
-
-
-# %% ====================  ====================
+# %% save results
 df = mapmany(collect(results)) do (mode, res)
     mapmany(collect(res[2])) do (train_treat, model)
         map([:neg, :pos]) do test_treat
@@ -108,7 +112,6 @@ end |> DataFrame
 sort!(df, cols=(:test, :mode))
 CSV.write("results/gp_mh.csv", df)
 
-# %% ====================  ====================
 
 map(collect(keys(all_data))) do treat
     d = all_data[treat][test_idx]
@@ -126,7 +129,7 @@ cs = Cost_Space((0.05, 0.3), (0.05, 0.3), (0., 0.2), (0.5,2.5))
 # %% ====================  ====================
 # deep_base = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
 deep_base = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
-deep_base = Chain(Game_Dense_full(1, 20, sigmoid), Game_Dense(20, 20), Game_Soft(20), Action_Response(1), Last(2))
+
 deep_cs = DeepCostSpace((0.001,0.01), (0.2, 0.5), (0.0, 0.3))
 
 rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
@@ -134,14 +137,13 @@ rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
 
 #%% Run
 n_runs = 4*64
-n_runs_deep = 2*64
+n_runs_deep = 64
 mh_costs_vec  = rand(cs, n_runs)
 deep_costs_vec  = rand(deep_cs, n_runs_deep)
 
-res_dict_old_deep
-res_dict_old2_deep
+
 res_dict = Dict()
-save_file = "saved_objects/res_dict6"
+save_file = "saved_objects/res_dict5"
 # res_dict[:fit_rl] = run_train_test(rl_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
 # serialize(save_file, res_dict)
 res_dict[:fit_mh] = run_train_test(mh_base, neg_data, pos_data, train_idx, test_idx, :fit, mh_costs_vec)
@@ -177,7 +179,7 @@ serialize(save_file, res_dict)
 ######################################################
 #%% Generate Data Frame For Leave One Population Out
 ######################################################
-res_dict = deserialize("saved_objects/res_dict6")
+res_dict = deserialize("saved_objects/res_dict5")
 
 
 
@@ -240,12 +242,11 @@ serialize("saved_objects/res_df_cv",res_df)
 ######################################################
 #%% Generate Data Frame For First Last Train Test data
 ######################################################
-res_dict = deserialize("saved_objects/res_dict6")
+res_dict = deserialize("saved_objects/res_dict5")
 
-res_dict[:opt_deep]
 
-# symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep]
-symbols = [:fit_deep, :opt_deep]
+
+symbols = [:fit_mh, :opt_mh, :fit_deep, :opt_deep]
 
 function cat_syms(a, b; sep="_")
     Symbol(String(a)*sep*String(b))
@@ -281,7 +282,7 @@ end
 
 res_df
 
-CSV.write("results/FirstLast_results_to_plot_deep.csv", res_df)
+CSV.write("results/FirstLast_results_to_plot.csv", res_df)
 serialize("saved_objects/res_df_FL",res_df)
 #%% Plot
 res_df = deserialize("saved_objects/res_df_FL")
