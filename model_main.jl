@@ -11,30 +11,119 @@ using BSON
 using Serialization
 using StatsBase
 using Statistics
+using Sobol
 
 addprocs(Sys.CPU_THREADS - 1)
+include("Heuristics.jl")  # prevent LoadError: UndefVarError: Game not defined below
 @everywhere begin
     include("Heuristics.jl")
     include("rule_learning.jl")
     include("model.jl")
+    include("box.jl")
 end
 
+include("gp_min.jl")
 
-# %% =============== Load data  =======================
-pos_data = load_treatment_data("positive")
-neg_data = load_treatment_data("negative")
-all_data = [pos_data; neg_data]
+# %% ==================== Load Data ====================
+all_data = Dict(
+    :pos => load_treatment_data("positive"),
+    :neg => load_treatment_data("negative"),
+)
+@everywhere all_data = $all_data
+train_idx, test_idx = early_late_indices(all_data[:pos])
+comp_idx = comparison_indices(all_data[:pos])
+
+@assert early_late_indices(all_data[:pos]) == early_late_indices(all_data[:neg])
+@assert comparison_indices(all_data[:pos]) == comparison_indices(all_data[:neg])
+# %% ==================== Fitting costs ====================
+
+function make_loss(model, train::Function, space::Box; parallel=true)
+    mymap = parallel ? pmap : map
+
+    function loss(x)
+        costs = Costs(;space(x)...)
+        mymap(values(all_data)) do data
+            trained_model = train(model, data, train_idx, costs)
+            prediction_loss(trained_model, data, train_idx, costs)
+        end |> sum
+    end
+end
+
+function init_points(dim, n);
+    seq = SobolSeq(dim)
+    skip(seq, n)
+    [next!(seq) for i in 1:n]
+end
+
+function fit_costs(model, train, space; n_sobol=500, n_gp=50)
+    f = make_loss(mh_base, optimize_model, mh_space; parallel=false)
+    xs = init_points(n_free(space), n_sobol)
+    @time ys = pmap(f, xs)
+    @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
+
+    f = make_loss(mh_base, optimize_model, mh_space; parallel=true)
+    costs = Costs(;mh_space(gp_opt.observed_optimizer)...)
+    trained_models = pmap(collect(all_data)) do (treat, data)
+        treat => train(model, data, train_idx, costs)
+    end |> Dict
+
+    costs, trained_models, gp_opt
+end
+
+# %% ==================== MetaHeuristic ====================
+mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
+mh_space = Box(
+    # :α => (0.05, 0.3, :log),
+    :α => (0.05, 0.5, :log),
+    :λ => (0.05, 0.3, :log),
+    :level => (0., 0.2),
+    :m_λ => (0.5,2.5, :log),
+)
+
+# mh_space = Box(
+#     :α => (0.05, 0.5, :log),
+#     :λ => (0.05, 0.5, :log),
+#     :level => (0., 0.5),
+#     :m_λ => (0.5,5, :log),
+# )
+
+results = Dict(
+    :fit => fit_costs(mh_base, fit_model, mh_space)
+    :opt => fit_costs(mh_base, optimize_model, mh_space)
+)
 
 
-comp_idx = comparison_indices(pos_data)
-train_idx, test_idx = early_late_indices(pos_data)
+
+
+# %% ====================  ====================
+df = mapmany(collect(results)) do (mode, res)
+    mapmany(collect(res[2])) do (train_treat, model)
+        map([:neg, :pos]) do test_treat
+            y = prediction_loss(model, all_data[test_treat], test_idx, costs)
+            # println("$mode $treat $(round(y; digits=3))",)
+            (test=test_treat, mode=mode, train=train_treat, loss=y)
+        end
+    end
+end |> DataFrame
+sort!(df, cols=(:test, :mode))
+CSV.write("results/gp_mh.csv", df)
+
+# %% ====================  ====================
+
+map(collect(keys(all_data))) do treat
+    d = all_data[treat][test_idx]
+    (treat=treat, rand=rand_loss(d), min=min_loss(d))
+end |> CSV.write("results/rand_min.csv")
+
+# %% ====================  ====================
 
 
 # %% Setup and run
-mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 qch_base = QCH(0.3, 0.3, 1.)
 cs = Cost_Space((0.05, 0.3), (0.05, 0.3), (0., 0.2), (0.5,2.5))
 
+
+# %% ====================  ====================
 # deep_base = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
 deep_base = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
 deep_cs = DeepCostSpace((0.001,0.01), (0.2, 0.5), (0.0, 0.3))
