@@ -61,7 +61,7 @@ Game_Dense(in::Integer, out::Integer, σ = identity) = begin
   Wᶜ = param(0.2 .* randn(out, in))
   bᴿ = param(0.2 .* randn(out))
   bᶜ = param(0.2 .* randn(out))
-  Game_Dense(Wᴿ, Wᶜ, bᴿ, bᶜ, σ)
+  Game_Dense(Wᴿ, Wᶜ, bᴿ, bᶜ, σ) 
 end
 
 Game_Dense_full(in::Integer, out::Integer, σ = identity) = begin
