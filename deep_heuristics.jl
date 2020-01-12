@@ -582,7 +582,7 @@ model = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50),
 # loss(x::Game, y) = Flux.crossentropy(model_0(x), y) + γ*sum(norm, params(model_0))
 loss(x::Game, y) = begin
     pred_play = model(x)
-    -expected_payoff(pred_play, pilot_neg_opp_h, x) + γ*sum(norm, params(model)) + sim_cost*my_softmax(model.layers[end].v)[2] + exact_cost/Flux.crossentropy(pred_play,pred_play)
+    -expected_payoff(pred_play, pilot_neg_opp_h, x) + γ*sum(norm, params(model)) + sim_cost*my_softmax(model.layers[end].v)[2] + c
 end
 loss_no_cost(x::Game, y) = -expected_payoff(model(x), pilot_neg_opp_h, x)
 loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)

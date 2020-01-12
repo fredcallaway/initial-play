@@ -100,11 +100,13 @@ mutable struct DeepCosts
     sim::Float64
 end
 
+DeepCosts(;γ, exact, sim) = DeepCosts(γ, exact, sim)
+
 (c::DeepCosts)(m::Chain, pred_play) = cost(m, pred_play, c)
 
 function cost(m::Chain, pred_play, c::DeepCosts)
     res = 0
-    res += c.γ*sum(norm, params(m))
+    res += c.γ*sum(norm, Flux.params(m))
     res += c.exact/Flux.crossentropy(pred_play,pred_play)
     sim_dist = my_softmax(m.layers[end].v)
     res += sum([c.sim*(i-1)*sim_dist[i] for i in 1:length(sim_dist)])
@@ -156,7 +158,7 @@ end
 function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
     model = deepcopy(base_model)
     loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
-    loss(x::Game, y) = Flux.crossentropy(model(x), y) + costs.γ*sum(norm, params(model))
+    loss(x::Game, y) = Flux.crossentropy(model(x), y) + costs.γ*sum(norm, Flux.params(model))
     ps = Flux.params(model)
     for i in 1:n_iter
         Flux.train!(loss, ps, data, opt)
