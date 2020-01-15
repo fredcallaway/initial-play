@@ -41,14 +41,20 @@ DEBUG = true
 DEBUG && @warn "DEBUG MODE: not computing loss"
 
 
+<<<<<<< HEAD
 get_cost_type(model) = Costs
 get_cost_type(model::Chain) = DeepCosts
+=======
+>>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
 @everywhere begin
     get_cost_type(model) = Costs
     get_cost_type(model::Chain) = DeepCosts
 end
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
 
 function make_loss(model, train::Function, space::Box; parallel=true)
     mymap = parallel ? pmap : map
@@ -69,14 +75,20 @@ function init_points(dim, n);
     [next!(seq) for i in 1:n]
 end
 
+<<<<<<< HEAD
 # function fit_costs(model, train, space; n_sobol=500, n_gp=50)
 function fit_costs(model, train, space; n_sobol=64, n_gp=5)
     f = make_loss(model, optimize_model, space; parallel=false)
+=======
+function fit_costs(model, train, space; n_sobol=500, n_gp=50)
+    println("Training $(typeof(model).name) model with $train")
+    f = make_loss(model, train, space; parallel=false)
+>>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
     xs = init_points(n_free(space), n_sobol)
     @time ys = pmap(f, xs)
     @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
 
-    f = make_loss(model, optimize_model, space; parallel=true)
+    f = make_loss(model, train, space; parallel=true)
     costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
     trained_models = pmap(collect(all_data)) do (treat, data)
         treat => train(model, data, train_idx, costs)
@@ -128,11 +140,23 @@ cs = Cost_Space((0.05, 0.3), (0.05, 0.3), (0., 0.2), (0.5,2.5))
 
 # %% ====================  ====================
 # deep_base = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
-deep_base = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2))
+deep_base = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2));
 
-deep_cs = DeepCostSpace((0.001,0.01), (0.2, 0.5), (0.0, 0.3))
+deep_space = Box(
+    :γ => (0.01,0.1),
+    :exact => (0.001, 0.1, :log),
+    :sim => (0.0, 0.3),
+)
 
-rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
+deep_results = Dict(
+    :fit => fit_costs(deep_base, fit_model, deep_space),
+    :opt => fit_costs(deep_base, optimize_model, deep_space)
+)
+
+# %% ====================  ====================
+
+
+# rl_base = RuleLearning(deepcopy(mh_base), 1., 1., rand(cs))
 
 
 #%% Run
