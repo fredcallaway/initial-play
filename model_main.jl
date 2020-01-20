@@ -86,9 +86,9 @@ function fit_costs(model, train, space; n_sobol=500, n_gp=50)
 >>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
     xs = init_points(n_free(space), n_sobol)
     @time ys = pmap(f, xs)
+    f = make_loss(model, train, space; parallel=true)
     @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
 
-    f = make_loss(model, train, space; parallel=true)
     costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
     trained_models = pmap(collect(all_data)) do (treat, data)
         treat => train(model, data, train_idx, costs)
@@ -106,23 +106,28 @@ mh_space = Box(
     :m_λ => (0.5,2.5, :log),
 )
 
-results = Dict(
-    :fit => fit_costs(mh_base, fit_model, mh_space)
+mh_results = Dict(
+    :fit => fit_costs(mh_base, fit_model, mh_space),
     :opt => fit_costs(mh_base, optimize_model, mh_space)
 )
 
 # %% save results
-df = mapmany(collect(results)) do (mode, res)
-    mapmany(collect(res[2])) do (train_treat, model)
-        map([:neg, :pos]) do test_treat
-            y = prediction_loss(model, all_data[test_treat], test_idx, costs)
-            # println("$mode $treat $(round(y; digits=3))",)
-            (test=test_treat, mode=mode, train=train_treat, loss=y)
+
+function results_df(results)
+    df = mapmany(collect(results)) do (mode, res)
+        costs, trained_models = res
+        mapmany(trained_models) do (train_treat, model)
+            map([:neg, :pos]) do test_treat
+                y = prediction_loss(model, all_data[test_treat], test_idx, costs)
+                # println("$mode $treat $(round(y; digits=3))",)
+                (test=test_treat, mode=mode, train=train_treat, loss=y)
+            end
         end
-    end
-end |> DataFrame
-sort!(df, cols=(:test, :mode))
-CSV.write("results/gp_mh.csv", df)
+    end |> DataFrame
+    sort!(df, (:test, :mode))
+end
+
+result_df(results) |> CSV.write("results/gp_mh.csv")
 
 
 map(collect(keys(all_data))) do treat
@@ -152,6 +157,8 @@ deep_results = Dict(
     :fit => fit_costs(deep_base, fit_model, deep_space),
     :opt => fit_costs(deep_base, optimize_model, deep_space)
 )
+
+results_df(deep_results) |> CSV.write("results/deep.csv")
 
 # %% ====================  ====================
 
