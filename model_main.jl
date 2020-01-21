@@ -12,12 +12,13 @@ using Serialization
 using StatsBase
 using Statistics
 using Sobol
+using Profile
 
 nprocs() == 1 && addprocs(Sys.CPU_THREADS - 1)
 include("Heuristics.jl")  # prevent LoadError: UndefVarError: Game not defined below
 @everywhere begin
     include("Heuristics.jl")
-    include("rule_learning.jl")
+    # include("rule_learning.jl")
     include("model.jl")
     include("box.jl")
 end
@@ -37,24 +38,13 @@ comp_idx = comparison_indices(all_data[:pos])
 @assert comparison_indices(all_data[:pos]) == comparison_indices(all_data[:neg])
 # %% ==================== Fitting costs ====================
 
-DEBUG = true
+DEBUG = false
 DEBUG && @warn "DEBUG MODE: not computing loss"
 
-
-<<<<<<< HEAD
-get_cost_type(model) = Costs
-get_cost_type(model::Chain) = DeepCosts
-=======
->>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
 @everywhere begin
     get_cost_type(model) = Costs
     get_cost_type(model::Chain) = DeepCosts
 end
-<<<<<<< HEAD
-
-
-=======
->>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
 
 function make_loss(model, train::Function, space::Box; parallel=true)
     mymap = parallel ? pmap : map
@@ -75,27 +65,51 @@ function init_points(dim, n);
     [next!(seq) for i in 1:n]
 end
 
-<<<<<<< HEAD
-# function fit_costs(model, train, space; n_sobol=500, n_gp=50)
-function fit_costs(model, train, space; n_sobol=64, n_gp=5)
-    f = make_loss(model, optimize_model, space; parallel=false)
-=======
-function fit_costs(model, train, space; n_sobol=500, n_gp=50)
-    println("Training $(typeof(model).name) model with $train")
+
+# This one is without BayesianOptimization
+function fit_costs(model, train, space; n_sobol=256, n_gp=5)
     f = make_loss(model, train, space; parallel=false)
->>>>>>> 6d277fc4ba5c23554a0e2e20e0273abcdf5481c7
+    n_sobol = 64
     xs = init_points(n_free(space), n_sobol)
     @time ys = pmap(f, xs)
-    f = make_loss(model, train, space; parallel=true)
-    @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
-
-    costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
+    min_idx = argmin(ys)
+    costs = get_cost_type(model)(;space(xs[min_idx])...)
     trained_models = pmap(collect(all_data)) do (treat, data)
         treat => train(model, data, train_idx, costs)
     end |> Dict
 
-    costs, trained_models, gp_opt
+    costs, trained_models
 end
+
+function results_df(results)
+    df = mapmany(collect(results)) do (mode, res)
+        costs, trained_models = res
+        mapmany(trained_models) do (train_treat, model)
+            map([:neg, :pos]) do test_treat
+                y = prediction_loss(model, all_data[test_treat], test_idx, costs)
+                # println("$mode $treat $(round(y; digits=3))",)
+                (test=test_treat, mode=mode, train=train_treat, loss=y)
+            end
+        end
+    end |> DataFrame
+    sort!(df, (:test, :mode))
+end
+
+#### Uncomment below for BayesianOptimization
+# function fit_costs(model, train, space; n_sobol=64, n_gp=5)
+#     f = make_loss(model, train, space; parallel=false)
+#     n_sobol = 64
+#     xs = init_points(n_free(space), n_sobol)
+#     @time ys = pmap(f, xs)
+#     f = make_loss(model, train, space; parallel=true)
+#     @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
+#     costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
+#     trained_models = pmap(collect(all_data)) do (treat, data)
+#         treat => train(model, data, train_idx, costs)
+#     end |> Dict
+#
+#     costs, trained_models, gp_opt
+# end
 
 # %% ==================== MetaHeuristic ====================
 mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
@@ -113,19 +127,6 @@ mh_results = Dict(
 
 # %% save results
 
-function results_df(results)
-    df = mapmany(collect(results)) do (mode, res)
-        costs, trained_models = res
-        mapmany(trained_models) do (train_treat, model)
-            map([:neg, :pos]) do test_treat
-                y = prediction_loss(model, all_data[test_treat], test_idx, costs)
-                # println("$mode $treat $(round(y; digits=3))",)
-                (test=test_treat, mode=mode, train=train_treat, loss=y)
-            end
-        end
-    end |> DataFrame
-    sort!(df, (:test, :mode))
-end
 
 result_df(results) |> CSV.write("results/gp_mh.csv")
 
@@ -145,21 +146,29 @@ cs = Cost_Space((0.05, 0.3), (0.05, 0.3), (0., 0.2), (0.5,2.5))
 
 # %% ====================  ====================
 # deep_base = Chain(Game_Dense_full(1, 100, sigmoid), Game_Dense(100,50), Game_Soft(50), Action_Response(1), Last(2))
-deep_base = Chain(Game_Dense_full(1, 50, sigmoid), Game_Dense(50,50), Game_Soft(50), Action_Response(1), Last(2));
+deep_base = Chain(Game_Dense(15, 50), Game_Soft(50), Action_Response(1), Last(2));
 
 deep_space = Box(
     :γ => (0.01,0.1),
-    :exact => (0.001, 0.1, :log),
+    :exact => (0.001, 0.3, :log),
     :sim => (0.0, 0.3),
 )
 
-deep_results = Dict(
+@time deep_results = Dict(
     :fit => fit_costs(deep_base, fit_model, deep_space),
     :opt => fit_costs(deep_base, optimize_model, deep_space)
 )
 
-results_df(deep_results) |> CSV.write("results/deep.csv")
+res_df_deep = results_df(deep_results)
 
+costs = deep_results[:opt][1]
+
+@time opt_mod = optimize_model(model, all_data[:pos][train_idx], costs)
+
+@profile prediction_loss(opt_mod, all_data[:pos], train_idx, costs)
+
+
+results_df(deep_results) |> CSV.write("results/deep_gustav.csv")
 # %% ====================  ====================
 
 

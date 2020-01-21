@@ -106,10 +106,11 @@ DeepCosts(;γ, exact, sim) = DeepCosts(γ, exact, sim)
 
 function cost(m::Chain, pred_play, c::DeepCosts)
     res = 0
-    res += c.γ*sum(norm, Flux.params(m))
     res += c.exact/Flux.crossentropy(pred_play,pred_play)
-    sim_dist = my_softmax(m.layers[end].v)
-    res += sum([c.sim*(i-1)*sim_dist[i] for i in 1:length(sim_dist)])
+    sim_dist = softmax(m.layers[end].v)
+    for i in 1:length(sim_dist)
+        res += c.sim*(i-1)*sim_dist[i]
+    end
     return res
 end
 
@@ -142,26 +143,35 @@ opt = ADAM(0.001, (0.9, 0.999))
 function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
+    feats = gen_feats.(games)
+    dat = collect(zip(feats, games, plays))
     model = deepcopy(base_model)
-    loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
-    loss(x::Game, y) = begin
+
+    loss(data::Array{Tuple{Tuple{Array{Real,2},Array{Real,2},Array{Array{Float64,1},2}},Game,Array{Float64,1}},1}) = mean(loss.(data))
+    loss(d::Tuple{Tuple{Array{Real,2},Array{Real,2},Array{Array{Float64,1},2}},Game,Array{Float64,1}}) = loss(d...)
+    loss(x::Features, g::Game, y) = begin
         pred_play = model(x)
-        -expected_payoff(pred_play, empirical_play, x) + costs(model, pred_play)
+        -expected_payoff(pred_play, empirical_play, g) + costs(model, pred_play)
     end
+    
     ps = Flux.params(model)
     for i in 1:n_iter
-        Flux.train!(loss, ps, data, opt)
+        Flux.train!(loss, ps, dat, opt)
     end
     model
 end
 
-function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
+
+function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=3)
+    games, play = invert(data)
+    feats = gen_feats.(games)
+    dat = collect(zip(feats, play))
     model = deepcopy(base_model)
-    loss(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
-    loss(x::Game, y) = Flux.crossentropy(model(x), y) + costs.γ*sum(norm, Flux.params(model))
+    loss(data::Array{Tuple{Features,Array{Float64,1}},1}) = sum([loss(g,y) for (g,y) in data])/length(data)
+    loss(x::Features, y) = Flux.crossentropy(model(x), y)
     ps = Flux.params(model)
     for i in 1:n_iter
-        Flux.train!(loss, ps, data, opt)
+        Flux.train!(loss, ps, dat, opt)
     end
     model
 end
@@ -249,7 +259,7 @@ function prediction_loss(model::Chain, in_data::Data, idx, costs)
     data = in_data[idx]
     loss_no_norm(x::Game, y) = Flux.crossentropy(model(x), y)
     loss_no_norm(data::Array{Tuple{Game,Array{Float64,1}},1}) = sum([loss_no_norm(g,y) for (g,y) in data])/length(data)
-    loss_no_norm(data).data
+    loss_no_norm(data)
 end
 
 function prediction_loss(model::RuleLearning, in_data::Data, idx, costs)
