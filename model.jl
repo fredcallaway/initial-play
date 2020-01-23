@@ -140,7 +140,7 @@ end
 
 opt = ADAM(0.001, (0.9, 0.999))
 
-function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
+function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=5)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
     feats = gen_feats.(games)
@@ -153,7 +153,7 @@ function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
         pred_play = model(x)
         -expected_payoff(pred_play, empirical_play, g) + costs(model, pred_play)
     end
-    
+
     ps = Flux.params(model)
     for i in 1:n_iter
         Flux.train!(loss, ps, dat, opt)
@@ -162,7 +162,7 @@ function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=20)
 end
 
 
-function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=3)
+function fit_model(base_model::Chain, data, costs::DeepCosts; n_iter=10)
     games, play = invert(data)
     feats = gen_feats.(games)
     dat = collect(zip(feats, play))
