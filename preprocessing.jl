@@ -9,7 +9,7 @@ include("Heuristics.jl")
 function write_play_distributions(df_wide_all, session_code)
     # names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)))
 
-    n_page = maximum(df_wide_all.participant__index_in_pages)
+    n_page = maximum(df_wide_all.participant_index_in_pages)
     keep = ((df_wide_all.participant__index_in_pages .== n_page) .&
             (df_wide_all.session_code .== session_code))
     df_wide = df_wide_all[keep, :]

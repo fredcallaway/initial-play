@@ -24,6 +24,8 @@ end
 
 include("gp_min.jl")
 
+n_sobol = 576
+
 # %% ==================== Load Data ====================
 all_data = Dict(
     :pos => load_treatment_data("positive"),
@@ -64,9 +66,8 @@ function init_points(dim, n);
     [next!(seq) for i in 1:n]
 end
 
-
 # This one is without BayesianOptimization
-function fit_costs(model, train, space; n_sobol=512)
+function fit_costs(model, train, space; n_sobol=n_sobol)
     f = make_loss(model, train, space; parallel=false)
     xs = init_points(n_free(space), n_sobol)
     println("Fitting $model via $train and ", n_sobol, " Sobol points")
@@ -120,8 +121,8 @@ mh_space = Box(
 )
 
 mh_results = Dict(
-    :fit => fit_costs(mh_base, fit_model, mh_space),
-    :opt => fit_costs(mh_base, optimize_model, mh_space)
+    :fit => fit_costs(mh_base, fit_model, mh_space; n_sobol=n_sobol),
+    :opt => fit_costs(mh_base, optimize_model, mh_space; n_sobol=n_sobol)
 )
 
 # %% save results
@@ -134,11 +135,11 @@ end
 
 
 
-serialize("saved_objects/mh_results_512", mh_results)
+serialize("saved_objects/mh_results_"*string(n_sobol), mh_results)
 res_df_mh = results_df(mh_results)
-res_df_mh |> CSV.write("results/gp_mh_512.csv")
+res_df_mh |> CSV.write("results/gp_mh_"*string(n_sobol)*".csv")
 
-results_df(mh_results; test_idx=comp_idx) |> CSV.write("results/mh_comp.csv")
+results_df(mh_results; test_idx=comp_idx) |> CSV.write("results/mh_"*string(n_sobol)*"comp.csv")
 
 map(collect(keys(all_data))) do treat
     d = all_data[treat][test_idx]
@@ -151,8 +152,35 @@ map(collect(keys(all_data))) do treat
 end |> CSV.write("results/rand_min_comp.csv")
 
 
-# %% ====================  ====================
+# %% ==================== Noisy Best Reply  ====================
+noisy_base = NoisyBR()
 
+dat = all_data[:pos][train_idx]
+
+train_dat =  vcat(all_data[:pos][train_idx], all_data[:neg][train_idx])
+games, plays = invert(train_dat)
+empirical_play = CacheHeuristic(games, plays);
+trained_model = fit_h!(noisy_base, games, empirical_play, empirical_play, nothing)
+
+
+pos_test_dat = all_data[:pos][test_idx]
+games, plays = invert(pos_test_dat)
+empirical_play = CacheHeuristic(games, plays);
+prediction_loss(trained_model, games, empirical_play, empirical_play)
+
+neg_test_dat = all_data[:neg][test_idx]
+games, plays = invert(neg_test_dat)
+empirical_play = CacheHeuristic(games, plays);
+prediction_loss(trained_model, games, empirical_play, empirical_play)
+
+
+map(values(all_data)) do data
+    trained_model = train(model, data, train_idx, costs)
+    prediction_loss(trained_model, data, train_idx, costs)
+end |> sum
+
+
+# %% ====================  ====================
 # %% Setup and run
 qch_base = QCH(0.3, 0.3, 1.)
 qch_space = Box(
@@ -186,17 +214,23 @@ deep_space = Box(
 )
 
 @time deep_results = Dict(
-    :fit => fit_costs(deep_base, fit_model, deep_space),
-    :opt => fit_costs(deep_base, optimize_model, deep_space)
+    :fit => fit_costs(deep_base, fit_model, deep_space; n_sobol=n_sobol),
+    :opt => fit_costs(deep_base, optimize_model, deep_space; n_sobol=n_sobol)
 )
 
 res_df_deep = results_df(deep_results)
 
-serialize("saved_objects/deep_results_512", deep_results)
-results_df(deep_results) |> CSV.write("results/deep_512.csv")
+serialize("saved_objects/deep_results_"*string(n_sobol), deep_results)
+results_df(deep_results) |> CSV.write("results/deep_"*string(n_sobol)*".csv")
 
-results_df(deep_results; test_idx=comp_idx) |> CSV.write("results/deep_comp_512.csv")
+results_df(deep_results; test_idx=comp_idx) |> CSV.write("results/deep_"*string(n_sobol)*"comp.csv")
 
+
+res_mh_512 = CSV.read("results/gp_mh_512.csv")
+res_mh_576 = CSV.read("results/gp_mh_576.csv")
+
+
+res_mh_512[:loss] .- res_mh_576.loss
 # Generate optimal behavior without cognitive costs to approximate actual optimal behavior
 
 no_costs = DeepCosts(0.0, 0.0, 0.0)
@@ -211,8 +245,16 @@ pos_opt_payoffs = Dict(:Common => mean_payoff(no_costs_opt[:pos], all_data[:pos]
 #%% Generate payoff for different heuristics DF
 ######################################################
 
-deep_results = deserialize("saved_objects/deep_results")
-mh_results = deserialize("saved_objects/mh_results")
+# deep_results = deserialize("saved_objects/deep_results")
+deep_results = deserialize("saved_objects/deep_results_512")
+deserialize("saved_objects/deep_results")
+deserialize("saved_objects/deep_results_512")
+deserialize("saved_objects/deep_results_576")
+# mh_results = deserialize("saved_objects/mh_results")
+mh_results = deserialize("saved_objects/mh_results_512")
+deserialize("saved_objects/mh_results")
+deserialize("saved_objects/mh_results_512")
+deserialize("saved_objects/mh_results_576")
 
 function mean_payoff(h::Chain, d::Data)
     games, play = invert(d)

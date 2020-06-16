@@ -654,6 +654,34 @@ function cost(h::QCH, c::Costs)
     (abs(h.λ1) * c.λ*α_1 +
     (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
 end
+
+
+#%%  ==================== Nosiy Best-reply Heuristic ====================
+mutable struct NoisyBR <: Heuristic
+    λ::Real
+    β::Real
+end
+
+NoisyBR() = NoisyBR(1., 0.)
+
+function play_distribution(h::NoisyBR, g::Game, opp_h::Heuristic)
+    p_opp = play_distribution(opp_h, transpose(g))
+    exp_payoff = (g.row .+ h.β .* g.col) * p_opp
+    dist = my_softmax(h.λ .* exp_payoff)
+    return dist
+end
+
+function cost(h::NoisyBR, c::Costs)
+    c.λ * h.λ
+end
+
+function expected_payoff(h::NoisyBR, opponent::Heuristic, g::Game)
+    p = play_distribution(h, g, opponent)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
 # %% ==================== MetaHeuristic ====================
 
 
@@ -744,6 +772,15 @@ function perf(mh::MetaHeuristic, games::Vector{Game}, opp_h::Heuristic, costs::C
     return payoff/length(games)
 end
 
+function perf(mh::NoisyBR, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
+    payoff = 0
+    for game in games
+        cost = sum(h_distribution(mh, game, opp_h, costs) .* costs.(mh.h_list))
+        payoff += expected_payoff(mh, opp_h, game, costs) - cost
+    end
+    return payoff/length(games)
+end
+
 
 function mean_square(x, y)
     sum((x - y).^2)
@@ -776,6 +813,17 @@ function prediction_loss(h::MetaHeuristic, games::Vector{Game}, actual::Heuristi
     loss/length(games)
 end
 
+function prediction_loss(h::NoisyBR, games::Vector{Game}, actual::Heuristic, opp_h::Heuristic; loss_f = likelihood)
+    loss = 0
+    for game in games
+        pred_p = play_distribution(h, game, opp_h)
+        actual_p = play_distribution(actual, game)
+        loss += loss_f(pred_p, actual_p)
+    end
+    loss/length(games)
+end
+
+
 function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
         init_x = get_parameters(h)
@@ -803,6 +851,21 @@ function fit_h!(h::MetaHeuristic, games::Vector{Game}, actual::Heuristic, opp_h,
     set_parameters!(h, x)
     h
 end
+
+function fit_h!(h::NoisyBR, games::Vector{Game}, actual::Heuristic, opp_h, costs; init_x=nothing, loss_f = likelihood)
+    if init_x == nothing
+        init_x = get_parameters(h)
+    end
+    function loss_wrap(x)
+        set_parameters!(h, x)
+        prediction_loss(h, games, actual, opp_h; loss_f=loss_f)
+    end
+    # x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS())) # TODO: get autodiff to work with logarithm in likelihood
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    set_parameters!(h, x)
+    h
+end
+
 
 
 function optimize_h!(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs; init_x=nothing)

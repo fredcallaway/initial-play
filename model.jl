@@ -140,7 +140,7 @@ end
 
 opt = ADAM(0.001, (0.9, 0.999))
 
-function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=5)
+function optimize_model(base_model::Chain, data, costs::DeepCosts; n_iter=10)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
     feats = gen_feats.(games)
