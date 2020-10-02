@@ -14,6 +14,8 @@ using Statistics
 using Sobol
 using Profile
 
+
+
 nprocs() == 1 && addprocs(Sys.CPU_THREADS - 1)
 include("Heuristics.jl")  # prevent LoadError: UndefVarError: Game not defined below
 @everywhere begin
@@ -24,7 +26,9 @@ end
 
 include("gp_min.jl")
 
-n_sobol = 576
+
+
+n_sobol = 600
 
 # %% ==================== Load Data ====================
 all_data = Dict(
@@ -67,19 +71,19 @@ function init_points(dim, n);
 end
 
 # This one is without BayesianOptimization
-function fit_costs(model, train, space; n_sobol=n_sobol)
-    f = make_loss(model, train, space; parallel=false)
-    xs = init_points(n_free(space), n_sobol)
-    println("Fitting $model via $train and ", n_sobol, " Sobol points")
-    @time ys = pmap(f, xs)
-    min_idx = argmin(ys)
-    costs = get_cost_type(model)(;space(xs[min_idx])...)
-    trained_models = pmap(collect(all_data)) do (treat, data)
-        treat => train(model, data, train_idx, costs)
-    end |> Dict
-
-    costs, trained_models
-end
+# function fit_costs(model, train, space; n_sobol=n_sobol)
+#     f = make_loss(model, train, space; parallel=false)
+#     xs = init_points(n_free(space), n_sobol)
+#     println("Fitting $model via $train and ", n_sobol, " Sobol points")
+#     @time ys = pmap(f, xs)
+#     min_idx = argmin(ys)
+#     costs = get_cost_type(model)(;space(xs[min_idx])...)
+#     trained_models = pmap(collect(all_data)) do (treat, data)
+#         treat => train(model, data, train_idx, costs)
+#     end |> Dict
+#
+#     costs, trained_models
+# end
 
 function results_df(results; test_idx=test_idx)
     df = mapmany(collect(results)) do (mode, res)
@@ -96,20 +100,19 @@ function results_df(results; test_idx=test_idx)
 end
 
 #### Uncomment below for BayesianOptimization
-# function fit_costs(model, train, space; n_sobol=64, n_gp=5)
-#     f = make_loss(model, train, space; parallel=false)
-#     n_sobol = 64
-#     xs = init_points(n_free(space), n_sobol)
-#     @time ys = pmap(f, xs)
-#     f = make_loss(model, train, space; parallel=true)
-#     @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
-#     costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
-#     trained_models = pmap(collect(all_data)) do (treat, data)
-#         treat => train(model, data, train_idx, costs)
-#     end |> Dict
-#
-#     costs, trained_models, gp_opt
-# end
+function fit_costs(model, train, space; n_sobol=64, n_gp=5)
+    f = make_loss(model, train, space; parallel=false)
+    xs = init_points(n_free(space), n_sobol)
+    @time ys = pmap(f, xs)
+    f = make_loss(model, train, space; parallel=true)
+    @time gp_opt = gp_minimize(f, n_free(space), init_Xy=(combinedims(xs), ys), iterations=n_gp)
+    costs = get_cost_type(model)(;space(gp_opt.observed_optimizer)...)
+    trained_models = pmap(collect(all_data)) do (treat, data)
+        treat => train(model, data, train_idx, costs)
+    end |> Dict
+
+    costs, trained_models, gp_opt
+end
 
 # %% ==================== MetaHeuristic ====================
 mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
@@ -121,10 +124,9 @@ mh_space = Box(
 )
 
 mh_results = Dict(
-    :fit => fit_costs(mh_base, fit_model, mh_space; n_sobol=n_sobol),
-    :opt => fit_costs(mh_base, optimize_model, mh_space; n_sobol=n_sobol)
+    :fit => fit_costs(mh_base, fit_model, mh_space; n_sobol=n_sobol, n_gp=20),
+    :opt => fit_costs(mh_base, optimize_model, mh_space; n_sobol=n_sobol, n_gp=20)
 )
-
 # %% save results
 
 function prediction_loss(results, key, treat, data, idx)
@@ -153,31 +155,61 @@ end |> CSV.write("results/rand_min_comp.csv")
 
 
 # %% ==================== Noisy Best Reply  ====================
-noisy_base = NoisyBR()
+noisy_base = FSBR(1., 0.5, 0.5)
 
-dat = all_data[:pos][train_idx]
+function train_NosiyBR(dat)
+    noisy_base = FSBR(1., 0.5, 0.5)
+    games, plays = invert(dat)
+    empirical_play = CacheHeuristic(games, plays);
+    trained_model = fit_h!(noisy_base, games, empirical_play, empirical_play, nothing)
+    trained_model
+end
 
-train_dat =  vcat(all_data[:pos][train_idx], all_data[:neg][train_idx])
-games, plays = invert(train_dat)
-empirical_play = CacheHeuristic(games, plays);
-trained_model = fit_h!(noisy_base, games, empirical_play, empirical_play, nothing)
+pos_trained_model = train_NosiyBR(all_data[:pos][train_idx])
+neg_trained_model = train_NosiyBR(all_data[:neg][train_idx])
+
+pos_test_dat =  all_data[:pos][test_idx]
+pos_games, pos_plays = invert(pos_test_dat)
+pos_empirical_play = CacheHeuristic(pos_games, pos_plays);
+
+neg_test_dat =  all_data[:neg][test_idx]
+neg_games, neg_plays = invert(neg_test_dat)
+neg_empirical_play = CacheHeuristic(neg_games, neg_plays);
+
+prediction_loss(pos_trained_model, pos_games, pos_empirical_play, pos_empirical_play)
+prediction_loss(neg_trained_model, pos_games, pos_empirical_play, pos_empirical_play)
+prediction_loss(pos_trained_model, neg_games, neg_empirical_play, neg_empirical_play)
+prediction_loss(neg_trained_model, neg_games, neg_empirical_play, neg_empirical_play)
 
 
-pos_test_dat = all_data[:pos][test_idx]
-games, plays = invert(pos_test_dat)
-empirical_play = CacheHeuristic(games, plays);
-prediction_loss(trained_model, games, empirical_play, empirical_play)
+# %% ==================== GCH ====================
+gch_base = GCH(1., 0.5, 0.5)
 
-neg_test_dat = all_data[:neg][test_idx]
-games, plays = invert(neg_test_dat)
-empirical_play = CacheHeuristic(games, plays);
-prediction_loss(trained_model, games, empirical_play, empirical_play)
+function train_GCH(dat)
+    gch_base = GCH(1., 0.5, 0.5)
+    games, plays = invert(dat)
+    empirical_play = CacheHeuristic(games, plays);
+    trained_model = fit_h!(gch_base, games, empirical_play)
+    trained_model
+end
 
+pos_trained_model = train_GCH(all_data[:pos][train_idx])
+neg_trained_model = train_GCH(all_data[:neg][train_idx])
 
-map(values(all_data)) do data
-    trained_model = train(model, data, train_idx, costs)
-    prediction_loss(trained_model, data, train_idx, costs)
-end |> sum
+prediction_loss(GCH(2.1, 2.1, 1.1), pos_games, pos_empirical_play)
+
+pos_test_dat =  all_data[:pos][test_idx]
+pos_games, pos_plays = invert(pos_test_dat)
+pos_empirical_play = CacheHeuristic(pos_games, pos_plays);
+
+neg_test_dat =  all_data[:neg][test_idx]
+neg_games, neg_plays = invert(neg_test_dat)
+neg_empirical_play = CacheHeuristic(neg_games, neg_plays);
+
+prediction_loss(pos_trained_model, pos_games, pos_empirical_play)
+prediction_loss(neg_trained_model, pos_games, pos_empirical_play)
+prediction_loss(pos_trained_model, neg_games, neg_empirical_play)
+prediction_loss(neg_trained_model, neg_games, neg_empirical_play)
 
 
 # %% ====================  ====================
@@ -191,8 +223,8 @@ qch_space = Box(
 )
 
 @time qch_results = Dict(
-    :fit => fit_costs(qch_base, fit_model, qch_space; n_sobol=64),
-    :opt => fit_costs(qch_base, optimize_model, qch_space; n_sobol=64)
+    :fit => fit_costs(qch_base, fit_model, qch_space; n_sobol=128),
+    :opt => fit_costs(qch_base, optimize_model, qch_space; n_sobol=128)
 )
 
 res_df_qch = results_df(qch_results)
@@ -255,6 +287,11 @@ mh_results = deserialize("saved_objects/mh_results_512")
 deserialize("saved_objects/mh_results")
 deserialize("saved_objects/mh_results_512")
 deserialize("saved_objects/mh_results_576")
+deserialize("saved_objects/mh_results_600")
+
+results_df(deserialize("saved_objects/deep_results_576"))
+results_df(deserialize("saved_objects/mh_results_600"))
+results_df(deserialize("saved_objects/qch_results"))
 
 function mean_payoff(h::Chain, d::Data)
     games, play = invert(d)

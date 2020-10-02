@@ -1,4 +1,4 @@
-import Distributions: MvNormal
+import Distributions: MvNormal, Poisson, pdf
 import Distributions
 import StatsBase: sample, Weights
 import Statistics: mean
@@ -625,20 +625,23 @@ mutable struct QCH <: Heuristic
     α_0::Real
     α_1::Real
     λ1::Real
-    λ21::Real
-    λ22::Real
+    # λ21::Real
+    # λ22::Real
+    λ2::Real
 end
 
-QCH(α_0, α_1, λ) = QCH(α_0, α_1, λ, λ, λ)
+QCH(α_0, α_1, λ) = QCH(α_0, α_1, λ, λ)
 QCH() = QCH(0.2, 0.5, 1.)
 
 function play_distribution(h::QCH, g::Game)
     level_0 = ones(Real, size(g))/size(g)
     level_1 = play_distribution(RowHeuristic(0., h.λ1), g)
-    opp_level_1 = play_distribution(RowHeuristic(0., h.λ21), transpose(g))
+    # opp_level_1 = play_distribution(RowHeuristic(0., h.λ21), transpose(g))
+    opp_level_1 = play_distribution(RowHeuristic(0., h.λ1), transpose(g))
     opp_play = (level_0*h.α_0 + opp_level_1*h.α_1)/(h.α_0 + h.α_1)
     opp_h = CacheHeuristic([transpose(g)], [opp_play])
-    level_2 = play_distribution(SimHeuristic([opp_h, RowHeuristic(0., h.λ22)]), g)
+    # level_2 = play_distribution(SimHeuristic([opp_h, RowHeuristic(0., h.λ22)]), g)
+    level_2 = play_distribution(SimHeuristic([opp_h, RowHeuristic(0., h.λ2)]), g)
     # α_2 = max(1 - h.α_0 - h.α_1, 0.)
     α_0 = min(max(h.α_0, 0.),1.)
 
@@ -652,7 +655,59 @@ function cost(h::QCH, c::Costs)
     α_1 = max(min(h.α_1, 1 - α_0), 0.)
     α_2 = min(max(1 - α_0 - α_1, 0.), 1.)
     (abs(h.λ1) * c.λ*α_1 +
-    (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
+    (abs(h.λ1) + abs(h.λ2)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
+    # (abs(h.λ21) + abs(h.λ22)) *c.λ*(1 -α_1 - α_0) + c.level*(1 -α_1 - α_0))
+end
+
+
+
+#%%  ==================== GCH Heuristic ====================
+mutable struct GCH <: Heuristic
+    β::Real
+    α::Real
+    τ::Real
+end
+
+GCH() = GCH(2., 1.5, 1.5)
+
+
+function GCH_level_0(row, β)
+    min_val = minimum(row)
+    mins = mapslices(minimum, row, dims=2)
+    b = mins .!= min_val
+    level_0 = β*b + (1 .- b)
+    level_0 = level_0./sum(level_0)
+end
+
+function best_reply(g, opp)
+    payoff = g.row * opp
+    reply = payoff .== maximum(payoff)
+    reply ./ sum(reply)
+end
+
+
+function play_distribution(h::GCH, g::Game)
+    row_plays = [GCH_level_0(g.row, h.β)]
+    col_plays = [GCH_level_0(transpose(g.col), h.β)]
+    col_g = transpose(g)
+
+    dist = Poisson(h.τ)
+    probs = [pdf(dist, i ) for i in 0:9]
+    belief_probs = probs.^h.α
+
+    for i in 1:9
+        n = length(row_plays)
+        row_guess = sum(row_plays[1:n].*belief_probs[1:n]./sum(belief_probs[1:n]))
+        col_guess = sum(col_plays[1:n].*belief_probs[1:n]./sum(belief_probs[1:n]))
+        push!(row_plays, best_reply(g, col_guess))
+        push!(col_plays, best_reply(col_g, row_guess))
+    end
+
+    return sum(row_plays.*probs)
+end
+
+function cost(h::GCH, c::Costs)
+    h.τ*c.level
 end
 
 
@@ -676,6 +731,36 @@ function cost(h::NoisyBR, c::Costs)
 end
 
 function expected_payoff(h::NoisyBR, opponent::Heuristic, g::Game)
+    p = play_distribution(h, g, opponent)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
+#%%  ==================== Nosiy Fehr-Schmidt Best-reply Heuristic ====================
+mutable struct FSBR <: Heuristic
+    λ::Real
+    α::Real
+    β::Real
+end
+
+FSBR() = FSBR(1., 0., 0.)
+
+function play_distribution(h::FSBR, g::Game, opp_h::Heuristic)
+    p_opp = play_distribution(opp_h, transpose(g))
+    r = g.row .> g.col
+    s = g.col .> g.row
+    # exp_payoff = (g.row .- h.α.*a_mat .- h.β.*b_mat) * p_opp
+    exp_payoff = ((1 .- h.α .*s - h.β .* r).* g.row + (h.α .*s + h.β .* r) .* g.col) * p_opp
+    dist = my_softmax(h.λ .* exp_payoff)
+    return dist
+end
+
+function cost(h::FSBR, c::Costs)
+    c.λ * h.λ
+end
+
+function expected_payoff(h::FSBR, opponent::Heuristic, g::Game)
     p = play_distribution(h, g, opponent)
     p_opp = play_distribution(opponent, transpose(g))
     p_outcome = p * p_opp'
@@ -772,16 +857,6 @@ function perf(mh::MetaHeuristic, games::Vector{Game}, opp_h::Heuristic, costs::C
     return payoff/length(games)
 end
 
-function perf(mh::NoisyBR, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
-    payoff = 0
-    for game in games
-        cost = sum(h_distribution(mh, game, opp_h, costs) .* costs.(mh.h_list))
-        payoff += expected_payoff(mh, opp_h, game, costs) - cost
-    end
-    return payoff/length(games)
-end
-
-
 function mean_square(x, y)
     sum((x - y).^2)
 end
@@ -823,6 +898,16 @@ function prediction_loss(h::NoisyBR, games::Vector{Game}, actual::Heuristic, opp
     loss/length(games)
 end
 
+function prediction_loss(h::FSBR, games::Vector{Game}, actual::Heuristic, opp_h::Heuristic; loss_f = likelihood)
+    loss = 0
+    for game in games
+        pred_p = play_distribution(h, game, opp_h)
+        actual_p = play_distribution(actual, game)
+        loss += loss_f(pred_p, actual_p)
+    end
+    loss/length(games)
+end
+
 
 function fit_h!(h::Heuristic, games::Vector{Game}, actual::Heuristic; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
@@ -853,6 +938,20 @@ function fit_h!(h::MetaHeuristic, games::Vector{Game}, actual::Heuristic, opp_h,
 end
 
 function fit_h!(h::NoisyBR, games::Vector{Game}, actual::Heuristic, opp_h, costs; init_x=nothing, loss_f = likelihood)
+    if init_x == nothing
+        init_x = get_parameters(h)
+    end
+    function loss_wrap(x)
+        set_parameters!(h, x)
+        prediction_loss(h, games, actual, opp_h; loss_f=loss_f)
+    end
+    # x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS())) # TODO: get autodiff to work with logarithm in likelihood
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    set_parameters!(h, x)
+    h
+end
+
+function fit_h!(h::FSBR, games::Vector{Game}, actual::Heuristic, opp_h, costs; init_x=nothing, loss_f = likelihood)
     if init_x == nothing
         init_x = get_parameters(h)
     end
