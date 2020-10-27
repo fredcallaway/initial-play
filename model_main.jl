@@ -154,6 +154,8 @@ map(collect(keys(all_data))) do treat
 end |> CSV.write("results/rand_min_comp.csv")
 
 
+mh_results[:opt][1]
+
 # %% ==================== Noisy Best Reply  ====================
 noisy_base = FSBR(1., 0.5, 0.5)
 

@@ -1,4 +1,5 @@
 using DataFrames
+using DataFramesMeta
 using CSV
 using JSON
 using StatsBase
@@ -6,9 +7,8 @@ using SplitApplyCombine
 
 include("Heuristics.jl")
 
-function write_play_distributions(df_wide_all, session_code)
+function write_ind_data(df_wide_all, session_code)
     # names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)))
-
     n_page = maximum(df_wide_all.participant__index_in_pages)
     keep = ((df_wide_all.participant__index_in_pages .== n_page) .&
             (df_wide_all.session_code .== session_code))
@@ -41,6 +41,8 @@ function write_play_distributions(df_wide_all, session_code)
     #Bugfix, for some reason I had to do this even though it worked before as with participant_df | Gustav 2019-08-27
     individal_choices_df = convert(Array{typeof(individal_choices_df[1])}, individal_choices_df) |> DataFrame
 
+    treatment = individal_choices_df.treatment[1]
+
 
     x = by(individal_choices_df, [:round, :role],
         :choice => x -> Tuple(counts(x, 0:2) ./ length(x))
@@ -48,6 +50,7 @@ function write_play_distributions(df_wide_all, session_code)
 
     df = unstack(x, :role, :choice_function)
     rename!(df, :col => :col_play, :row => :row_play)
+
     row = []
     col = []
     for i in 1:50
@@ -58,16 +61,16 @@ function write_play_distributions(df_wide_all, session_code)
         push!(col, games[col_idx])
     end
 
-    df[:row_game] = row
-    df[:col_game] = col
-    df[:treatment] = treatment = participant_df.treatment[1]
 
     comparison = [31, 38, 42, 49]
-    df[:type] = map(1:50) do i
-        i in comparison ? "comparison" : "treatment"
-    end
-
-    df |> CSV.write("data/processed/$(treatment)/$(session_code)_play_distributions.csv")
+    get_row_game(x) = row[x]
+    get_col_game(x) = col[x]
+    get_row_play(x) = df.row_play[x]
+    get_col_play(x) = df.col_play[x]
+    get_game(x, role) = role == "row" ? row[x] : col[x]
+    get_type(x) = x in comparison ? "comparison" : "treatment"
+    individal_choices_df = @transform(individal_choices_df, row_game_string = get_row_game.(:round), col_game_string =get_col_game(:round), game_string=get_game.(:round,:role), type= get_type.(:round), row_play = get_row_play.(:round), col_play=get_col_play.(:round))
+    individal_choices_df |> CSV.write("data/processed/ind_data/$(treatment)/$(session_code)_ind_play_distributions.csv")
 end
 
 # raw_csv = "data/pilot/all_apps_wide_2019-04-06.csv"
@@ -77,8 +80,11 @@ raw_csv = "data/raw/all_apps_wide_2019-09-01.csv"
 
 df_wide_all = CSV.read(raw_csv);
 names!(df_wide_all, map(n->Symbol(replace(string(n), "." => "_")), names(df_wide_all)));
+collect(countmap(df_wide_all.session_code))
+
+
 for (code,n) in countmap(df_wide_all.session_code)
     if n >= 30
-        println(write_play_distributions(df_wide_all, code))
+        println(write_ind_data(df_wide_all, code))
     end
 end

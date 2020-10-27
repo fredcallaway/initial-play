@@ -3,8 +3,8 @@ include("Heuristics.jl")
 
 mutable struct RuleLearning
     mh::MetaHeuristic
-    β₀::Float64
-    β₁::Float64
+    β₀::Real
+    β₁::Real
     costs::Costs
 end
 
@@ -38,6 +38,7 @@ function rule_loss(rl::RuleLearning, data)
     data_dict = gen_data_dict(data)
     opp_h_dict = gen_opp_h_dict(data_dict)
     pred_loss = 0
+    l_num = 0
     for treat in keys(data_dict), role in ["row", "col"]
         mh = deepcopy(rl.mh)
         opp_role = role == "row" ? "col" : "row"
@@ -51,9 +52,11 @@ function rule_loss(rl::RuleLearning, data)
             end
             # pred_loss = pred_loss + prediction_loss_no_RI(mh, [game], actual_h, rl.costs) # This is to get sum of loss instead of average
             pred_loss = pred_loss + prediction_loss(mh, [game], actual_h, opp_h, rl.costs) # This is to get sum of loss instead of average
+            l_num += 1
         end
     end
-    return pred_loss/length(data)
+    # return pred_loss/length(data)
+    return pred_loss/l_num
 end
 
 function rule_loss_idx(rl::RuleLearning, data, idx)
@@ -63,7 +66,6 @@ function rule_loss_idx(rl::RuleLearning, data, idx)
     l_num = 0
     for treat in keys(data_dict), role in ["row", "col"]
         mh = deepcopy(rl.mh)
-        loss_idx = filter(x -> (x > (treat - 1)*100 && x <= (treat -1)*100 + 50), idx)
         opp_role = role == "row" ? "col" : "row"
         opp_h = opp_h_dict[treat][opp_role]
         actual_h = opp_h_dict[treat][role]
@@ -74,7 +76,7 @@ function rule_loss_idx(rl::RuleLearning, data, idx)
                 mh.prior[i] = rl.β₀ * mh.prior[i] + rl.β₁ * perf(mh.h_list[i], [game], opp_h, rl.costs)
             end
             # pred_loss = pred_loss + prediction_loss_no_RI(mh, [game], actual_h, rl.costs) # This is to get sum of loss instead of average
-            if r in loss_idx
+            if r in idx
                 pred_loss = pred_loss + prediction_loss(mh, [game], actual_h, opp_h, rl.costs) # This is to get sum of loss instead of average
                 l_num += 1
             end
@@ -117,6 +119,29 @@ function prediction_loss_no_RI(h::MetaHeuristic, games::Vector{Game}, actual::He
     loss/length(games)
 end
 
+
+function fit_rl(rl_base::RuleLearning, data, idx)
+    data_dict = gen_data_dict(data)
+    opp_h_dict = gen_opp_h_dict(data_dict)
+    rl = deepcopy(rl_base)
+    len_prior = length(rl.mh.prior)
+    len_lambdas = length(get_lambdas(rl.mh))
+    init_x = [rl.β₀, rl.β₁, rl.mh.prior..., get_lambdas(rl.mh)...]
+    function loss_f(x)
+        rl.β₀ = x[1]
+        rl.β₁ = x[2]
+        rl.mh.prior = x[3:3+len_prior - 1]
+        set_lambdas!(rl.mh, x[3+len_prior:end])
+        return rule_loss_idx(rl, data, idx)
+    end
+    res_x = Optim.minimizer(optimize(loss_f, init_x, BFGS(), autodiff=:forward))
+    rl.β₀ = res_x[1]
+    rl.β₁ = res_x[2]
+    rl.mh.prior = res_x[3:3+len_prior - 1]
+    set_lambdas!(rl.mh, res_x[3+len_prior:end])
+    return rl
+end
+
 function fit_βs_and_prior(rl_base::RuleLearning, data, idx)
     data_dict = gen_data_dict(data)
     opp_h_dict = gen_opp_h_dict(data_dict)
@@ -128,7 +153,7 @@ function fit_βs_and_prior(rl_base::RuleLearning, data, idx)
         rl.mh.prior = x[3:end]
         return rule_loss_idx(rl, data, idx)
     end
-    res_x = Optim.minimizer(optimize(loss_f, init_x))
+    res_x = Optim.minimizer(optimize(loss_f, init_x, BFGS(), autodiff=:forward))
     rl.β₀ = res_x[1]
     rl.β₁ = res_x[2]
     rl.mh.prior = res_x[3:end]
@@ -144,7 +169,7 @@ function optimize_rule_lambdas(rl_base::RuleLearning, data, idx)
         set_lambdas!(rl.mh, x)
         return rule_loss_idx(rl, data, idx)
     end
-    res_x = Optim.minimizer(optimize(loss_f, init_x))
+    res_x = Optim.minimizer(optimize(loss_f, init_x, BFGS(), autodiff=:forward))
     set_lambdas!(rl.mh, res_x)
     return rl
 end

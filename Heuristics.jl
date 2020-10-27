@@ -166,6 +166,7 @@ end
 
 (c::Costs)(h::Heuristic) = cost(h, c)
 
+get_parameters(c::Costs) = [C.α, c.λ, c.level, c.m_λ]
 
 # %% ==================== RowCellHeuristic ====================
 
@@ -793,7 +794,7 @@ end
 function play_distribution(mh::MetaHeuristic, g::Game)
     ### Play according to prior,
     ### does not adjust according to performance in specific game
-    h_dist = my_softmax(mh.prior ./ costs.m_λ)
+    h_dist = my_softmax(mh.prior)
     play = zeros(Real, size(g))
     for i in 1:length(h_dist)
         play += h_dist[i] * play_distribution(mh.h_list[i], g)
@@ -826,6 +827,14 @@ function expected_payoff(h::MetaHeuristic, opponent::Heuristic, g::Game, costs::
     sum(p_outcome .* g.row)
 end
 
+function expected_payoff_no_RI(h::MetaHeuristic, opponent::Heuristic, g::Game, costs::Costs)
+    p = play_distribution(h, g)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
+
 
 # TODO: prior distribution on Heuristic weights
 # - cost of deviating from prior for a specific game, kl_c * Kullback-Leibler divergence
@@ -856,6 +865,7 @@ function perf(mh::MetaHeuristic, games::Vector{Game}, opp_h::Heuristic, costs::C
     end
     return payoff/length(games)
 end
+
 
 function mean_square(x, y)
     sum((x - y).^2)
