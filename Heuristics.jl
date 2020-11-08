@@ -768,6 +768,56 @@ function expected_payoff(h::FSBR, opponent::Heuristic, g::Game)
     sum(p_outcome .* g.row)
 end
 
+
+#%% ===================== SoftmaxHeuristic =================
+mutable struct SoftmaxHeuristic <: Heuristic
+    h_list::Vector{Heuristic}
+    λ::Real
+    as::Vector{T} where T <: Real
+    h_dist::Vector{T} where T <: Real
+end
+
+SoftmaxHeuristic(h_list::Vector{Heuristic}, λ::Real) = SoftmaxHeuristic(h_list, λ, zeros(length(h_list)), ones(length(h_list))./length(h_list))
+
+
+function play_distribution(sh::SoftmaxHeuristic, g::Game)
+    play = zeros(Real, size(g))
+    for i in 1:length(sh.h_dist)
+        play += sh.h_dist[i] * play_distribution(sh.h_list[i], g)
+    end
+    play
+end
+
+function get_parameters(sh::SoftmaxHeuristic)
+    # res = deepcopy(sh.prior)
+    x_vec = [sh.λ, [x for h in sh.h_list for x in get_parameters(h)]...]
+    # push!(res, x_vec...)
+    # res
+end
+
+function set_parameters!(sh::SoftmaxHeuristic, x::Vector{T} where T <: Real)
+    # setfield!(mh, :prior, x[1:length(mh.prior)])
+    # idx = length(mh.prior) + 1
+    sh.λ = x[1]
+    idx = 2
+    for h in sh.h_list
+        set_parameters!(h, x[idx:(idx+size(h) -1)])
+        idx = idx+size(h)
+    end
+end
+
+function expected_payoff(sh::SoftmaxHeuristic, opponent::Heuristic, g::Game)
+    p = play_distribution(sh, g)
+    p_opp = play_distribution(opponent, transpose(g))
+    p_outcome = p * p_opp'
+    sum(p_outcome .* g.row)
+end
+
+
+function cost(sh::SoftmaxHeuristic, c::Costs)
+    sum(sh.h_dist .* c.(sh.h_list))
+end
+
 # %% ==================== MetaHeuristic ====================
 
 
@@ -853,6 +903,7 @@ function perf(h::Heuristic, games::Vector{Game}, opp_h::Heuristic, costs::Costs)
     return (payoff/length(games) - costs(h))
 end
 
+
 function perf(h::Heuristic, game::Game, opp_h::Vector, costs::Costs)
     return (expected_payoff(h, opp_h, game) - costs(h))
 end
@@ -864,6 +915,18 @@ function perf(mh::MetaHeuristic, games::Vector{Game}, opp_h::Heuristic, costs::C
         payoff += expected_payoff(mh, opp_h, game, costs) - cost
     end
     return payoff/length(games)
+end
+
+
+function set_as!(sh::SoftmaxHeuristic, opponent::Heuristic, games::Vector{Game}, costs::Costs)
+    sh.as = zeros(length(sh.h_list))
+    for i in 1:length(sh.h_list)
+        sh.as[i] = perf(sh.h_list[i], games, opponent, costs)
+    end
+end
+
+function update_h_dist!(sh::SoftmaxHeuristic)
+    sh.h_dist = my_softmax(sh.as .* sh.λ)
 end
 
 

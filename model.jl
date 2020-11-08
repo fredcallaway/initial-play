@@ -66,14 +66,92 @@ end
 # mh_pos = MetaHeuristic([JointMax(3.), RowγHeuristic(3., 2.), RowγHeuristic(2., 2.), RowγHeuristic(1., 2.), RowγHeuristic(0., 2.), RowγHeuristic(-1., 2.), RowγHeuristic(-2., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0., 0., 0., 0., 0., 0.]);
 
 
+# function fit_model(base_model::MetaHeuristic, data, costs::Costs; n_iter=5)
+#     games, plays = invert(data)
+#     empirical_play = CacheHeuristic(games, plays);
+#     model = deepcopy(base_model)
+#     for i in 1:n_iter
+#         fit_prior!(model, games, empirical_play, empirical_play, costs)
+#         fit_h!(model, games, empirical_play, empirical_play, costs)
+#     end
+#     model
+# end
+
+function fit_model(base_model::SoftmaxHeuristic, data, costs::Costs; n_iter=5)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    model = deepcopy(base_model)
+    init_x = [get_parameters(model)...]
+    set_as!(model, empirical_play, games, costs)
+    function loss_wrap(x)
+        set_parameters!(model, x)
+        update_h_dist!(model)
+        prediction_loss(model, games, empirical_play)
+    end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    set_parameters!(model, x[1:end])
+    set_as!(model, empirical_play, games, costs)
+    update_h_dist!(model)
+    model
+end
+
 function fit_model(base_model::MetaHeuristic, data, costs::Costs; n_iter=5)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
     model = deepcopy(base_model)
-    for i in 1:n_iter
-        fit_prior!(model, games, empirical_play, empirical_play, costs)
-        fit_h!(model, games, empirical_play, empirical_play, costs)
+    init_x = [get_parameters(model)..., model.prior...]
+    len_params = length(get_parameters(model))
+    function loss_wrap(x)
+        set_parameters!(model, x[1:len_params])
+        model.prior = x[len_params+1:end]
+        prediction_loss(model, games, empirical_play, empirical_play, costs)
     end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    set_parameters!(model, x[1:len_params])
+    model.prior = x[len_params+1:end]
+    model
+end
+
+function fit_model_no_RI(base_model::MetaHeuristic, data)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays)
+    model = deepcopy(base_model)
+    init_x = [get_parameters(model)..., model.prior...]
+    len_params = length(get_parameters(model))
+    function loss_wrap(x)
+        set_parameters!(model, x[1:len_params])
+        model.prior = x[len_params+1:end]
+        prediction_loss(model, games, empirical_play)
+    end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    set_parameters!(model, x[1:len_params])
+    model.prior = x[len_params+1:end]
+    model
+end
+
+
+
+# function optimize_model(base_model::MetaHeuristic, data, costs::Costs; n_iter=5)
+#     games, plays = invert(data)
+#     empirical_play = CacheHeuristic(games, plays);
+#     model = deepcopy(base_model)
+#     for i in 1:n_iter
+#         optimize_h!(model, games, empirical_play, costs)
+#         opt_prior!(model, games, empirical_play, costs)
+#     end
+#     model
+# end
+
+function optimize_model(base_model::SoftmaxHeuristic, data, costs::Costs)
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    model = deepcopy(base_model)
+    model.λ = costs.m_λ
+    for h in model.h_list
+        optimize_h!(h, games, empirical_play, costs)
+    end
+    set_as!(model, empirical_play, games, costs)
+    update_h_dist!(model)
     model
 end
 
@@ -81,10 +159,16 @@ function optimize_model(base_model::MetaHeuristic, data, costs::Costs; n_iter=5)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
     model = deepcopy(base_model)
-    for i in 1:n_iter
-        optimize_h!(model, games, empirical_play, costs)
-        opt_prior!(model, games, empirical_play, costs)
+    init_x = [get_parameters(model)..., model.prior...]
+    len_params = length(get_parameters(model))
+    function loss_wrap(x)
+        set_parameters!(model, x[1:len_params])
+        model.prior = x[len_params+1:end]
+        -perf(model, games, empirical_play, costs)
     end
+    x = Optim.minimizer(optimize(loss_wrap, init_x, BFGS(); autodiff = :forward))
+    set_parameters!(model, x[1:len_params])
+    model.prior = x[len_params+1:end]
     model
 end
 
@@ -246,6 +330,13 @@ function prediction_loss(model::MetaHeuristic, in_data::Data, idx, costs)
     games, plays = invert(data)
     empirical_play = CacheHeuristic(games, plays);
     prediction_loss(model, games, empirical_play, empirical_play, costs)
+end
+
+function prediction_loss_no_RI(model::MetaHeuristic, in_data::Data, idx, costs)
+    data = in_data[idx]
+    games, plays = invert(data)
+    empirical_play = CacheHeuristic(games, plays);
+    prediction_loss(model, games, empirical_play)
 end
 
 function prediction_loss(model::Heuristic, in_data::Data, idx, costs)

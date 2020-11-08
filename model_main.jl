@@ -15,7 +15,6 @@ using Sobol
 using Profile
 
 
-
 nprocs() == 1 && addprocs(Sys.CPU_THREADS - 1)
 include("Heuristics.jl")  # prevent LoadError: UndefVarError: Game not defined below
 @everywhere begin
@@ -28,7 +27,11 @@ include("gp_min.jl")
 
 
 
-n_sobol = 600
+# n_sobol = 600
+n_sobol = 10*64
+n_gp = 20
+# n_sobol = 1*64
+# n_gp = 5
 
 # %% ==================== Load Data ====================
 all_data = Dict(
@@ -114,18 +117,90 @@ function fit_costs(model, train, space; n_sobol=64, n_gp=5)
     costs, trained_models, gp_opt
 end
 
+# %% ==================== SoftmaxHeuristic =================
+sh_base = SoftmaxHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], 1.)
+
+sh_space = Box(
+    :α => (0.05, 0.5, :log),
+    :λ => (0.05, 0.3, :log),
+    :level => (0., 0.2),
+    :m_λ => (0.1,10., :log),
+)
+
+sh_results = Dict(
+    :fit => fit_costs(sh_base, fit_model, sh_space; n_sobol=n_sobol, n_gp=n_gp),
+    :opt => fit_costs(sh_base, optimize_model, sh_space; n_sobol=n_sobol, n_gp=n_gp)
+)
+
+new_sh_results = deepcopy(sh_results)
+
+
+pos_sh = deepcopy(new_sh_results[:fit][2][:pos])
+pos_sh.h_list[2].γ = 0.5
+pos_sh.λ = 0.5
+update_h_dist!(pos_sh)
+
+prediction_loss(pos_sh, all_data[:pos], test_idx, C)
+
+
+results_df(new_sh_results)
+
+
+
+serialize("saved_objects/sh_results_"*string(n_sobol)*"_"*string(n_gp), sh_results)
+res_df_sh = results_df(sh_results)
+res_df_sh |> CSV.write("results/gp_sh_"*string(n_sobol)*"_"*string(n_gp)*".csv")
+
+results_df(sh_results; test_idx=comp_idx) |> CSV.write("results/sh_"*string(n_sobol)*"_"*string(n_gp)*"comp.csv")
+
+map(collect(keys(all_data))) do treat
+    d = all_data[treat][test_idx]
+    (treat=treat, rand=rand_loss(d), min=min_loss(d))
+end |> CSV.write("results/rand_min.csv")
+
+map(collect(keys(all_data))) do treat
+    d = all_data[treat][comp_idx]
+    (treat=treat, rand=rand_loss(d), min=min_loss(d))
+end |> CSV.write("results/rand_min_comp.csv")
+
+
+sh_results[:fit][1]
+sh_results[:opt][1]
+
+#
+# pos_dat =  all_data[:neg]
+# pos_games, pos_plays = invert(pos_dat)
+# pos_empirical_play = CacheHeuristic(pos_games, pos_plays);
+#
+# C = Costs(0.349700752494858, 0.28515682342466236, 0.1287109375, 5.5218037538845)
+# set_as!(sh_base, pos_empirical_play, pos_games, C)
+# sh_base.as
+# update_h_dist!(sh_base)
+#
+# prediction_loss(sh_base, pos_games[test_idx], pos_empirical_play)
+#
+#
+# opt_sh = fit_model(sh_base, all_data[:pos][train_idx], C)
+# # opt_sh = optimize_model(sh_base, all_data[:pos][train_idx], C)
+# set_as!(opt_sh, pos_empirical_play, pos_games[train_idx], C)
+#
+#
+# update_h_dist!(opt_sh)
+# prediction_loss(opt_sh, pos_games[test_idx], pos_empirical_play)
+
 # %% ==================== MetaHeuristic ====================
 mh_base = MetaHeuristic([JointMax(3.), RowHeuristic(0., 2.), SimHeuristic([RowHeuristic(1., 1.), RowHeuristic(0., 2.)])], [0., 0., 0.]);
 mh_space = Box(
     :α => (0.05, 0.5, :log),
     :λ => (0.05, 0.3, :log),
     :level => (0., 0.2),
-    :m_λ => (0.5,2.5, :log),
+    :m_λ => (0.5,10., :log),
 )
 
+
 mh_results = Dict(
-    :fit => fit_costs(mh_base, fit_model, mh_space; n_sobol=n_sobol, n_gp=20),
-    :opt => fit_costs(mh_base, optimize_model, mh_space; n_sobol=n_sobol, n_gp=20)
+    :fit => fit_costs(mh_base, fit_model, mh_space; n_sobol=n_sobol, n_gp=n_gp),
+    :opt => fit_costs(mh_base, optimize_model, mh_space; n_sobol=n_sobol, n_gp=n_gp)
 )
 # %% save results
 
@@ -135,13 +210,11 @@ function prediction_loss(results, key, treat, data, idx)
     prediction_loss(m, data, idx, costs)
 end
 
-
-
-serialize("saved_objects/mh_results_"*string(n_sobol), mh_results)
+serialize("saved_objects/mh_results_"*string(n_sobol)*"_"*string(n_gp), mh_results)
 res_df_mh = results_df(mh_results)
-res_df_mh |> CSV.write("results/gp_mh_"*string(n_sobol)*".csv")
+res_df_mh |> CSV.write("results/gp_mh_"*string(n_sobol)*"_"*string(n_gp)*".csv")
 
-results_df(mh_results; test_idx=comp_idx) |> CSV.write("results/mh_"*string(n_sobol)*"comp.csv")
+results_df(mh_results; test_idx=comp_idx) |> CSV.write("results/mh_"*string(n_sobol)*"_"*string(n_gp)*"comp.csv")
 
 map(collect(keys(all_data))) do treat
     d = all_data[treat][test_idx]
@@ -155,6 +228,7 @@ end |> CSV.write("results/rand_min_comp.csv")
 
 
 mh_results[:opt][1]
+mh_results[:fit][1]
 
 # %% ==================== Noisy Best Reply  ====================
 noisy_base = FSBR(1., 0.5, 0.5)
@@ -273,8 +347,41 @@ no_costs_opt = Dict(:neg => optimize_model(deep_base, all_data[:neg], train_idx,
 neg_opt_payoffs = Dict(:Common => mean_payoff(no_costs_opt[:neg], all_data[:pos][test_idx]), :Competing => mean_payoff(no_costs_opt[:neg], all_data[:neg][test_idx]))
 pos_opt_payoffs = Dict(:Common => mean_payoff(no_costs_opt[:pos], all_data[:pos][test_idx]), :Competing => mean_payoff(no_costs_opt[:pos], all_data[:neg][test_idx]))
 
-# %% ====================  ====================
+# %% ==================== Generate predictions for the comparison games  ====================
 
+mh_results = deserialize("saved_objects/mh_results_600")
+
+comp_games = [x[1] for x in all_data[:pos][comp_idx][1:4]]
+
+pos_empirical_plays = [mean([x[2] for x in all_data[:pos][comp_idx][collect(i:4:80)]]) for i in 1:4]
+neg_empirical_plays = [mean([x[2] for x in all_data[:neg][comp_idx][collect(i:4:80)]]) for i in 1:4]
+
+pos_ch = CacheHeuristic([comp_games..., transpose.(comp_games)...], [pos_empirical_plays..., pos_empirical_plays...])
+neg_ch = CacheHeuristic([comp_games..., transpose.(comp_games)...], [neg_empirical_plays..., neg_empirical_plays...])
+
+C = mh_results[:opt][1]
+C_fit = mh_results[:fit][1]
+pos_opt_mh = mh_results[:opt][2][:pos]
+neg_opt_mh = mh_results[:opt][2][:neg]
+pos_fit_mh = mh_results[:fit][2][:pos]
+neg_fit_mh = mh_results[:fit][2][:neg]
+
+idx = 4
+pos_empirical_plays[idx]
+play_distribution(pos_opt_mh, comp_games[idx], pos_ch, C)
+play_distribution(pos_fit_mh, comp_games[idx], pos_ch, C_fit)
+
+neg_empirical_plays[idx]
+play_distribution(neg_opt_mh, comp_games[idx], neg_ch, C)
+play_distribution(neg_fit_mh, comp_games[idx], neg_ch, C_fit)
+
+comp_preds = map(1:4) do idx
+    (;comp_game=idx, neg_emp=neg_empirical_plays[idx], pos_emp=pos_empirical_plays[idx], neg_opt=play_distribution(neg_opt_mh, comp_games[idx], neg_ch, C), pos_opt=play_distribution(pos_opt_mh, comp_games[idx], pos_ch, C))
+end
+comp_preds_df = DataFrame(comp_preds)
+
+pwd()
+CSV.write("results/comp_games_play_and_predictions.csv", comp_preds_df)
 ######################################################
 #%% Generate payoff for different heuristics DF
 ######################################################

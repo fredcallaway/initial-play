@@ -36,7 +36,7 @@ summary(model)
 summary(df$payoff)
 
 
-group_by(df[df$round > 30,], treatment, heuristic) %>% summarise(men_p = mean(payoff))
+group_by(df[df$round > 1,], treatment, heuristic) %>% summarise(men_p = mean(cum_payoff))
 
 
 model = felm(probs ~ cum_payoff + exp_payoff | treatment*heuristic, data=df)
